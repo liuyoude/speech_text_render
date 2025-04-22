@@ -6,6 +6,7 @@ author: liuyoude
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Optional
+from audio_aligner import TimeSegment
 
 class BaseExtractor(ABC):
     def __init__(self, config: Dict):
@@ -17,7 +18,7 @@ class BaseExtractor(ABC):
         pass
     
     @abstractmethod
-    def extract(self, audio_path: str, text: Optional[str] = None) -> Dict:
+    def extract(self, audio_path: str, text: Optional[str] = None, time_segments: Optional[TimeSegment] = None) -> Dict:
         """
         Extract features from audio and optional text.
         
