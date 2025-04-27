@@ -6,7 +6,7 @@ author: liuyoude
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Optional
-from audio_aligner import TimeSegment
+from core.audio_aligner.audio_aligner import TimeSegment
 
 class BaseExtractor(ABC):
     def __init__(self, config: Dict):
