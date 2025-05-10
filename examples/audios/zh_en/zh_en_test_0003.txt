@@ -1,0 +1,1 @@
+这是test中文和English被mix在一起用的text, 用来测试aligner的performance。
