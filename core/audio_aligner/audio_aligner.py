@@ -375,7 +375,7 @@ class MFAAligner(BaseAligner):
             type="sentence",
         )
     
-class SpeechTextAligner:
+class SpeechTextAligner(BaseAligner):
     """ align audio and text using MFA """
     def __init__(self, device="cpu"):
         self.whisper_aligner = WhisperAligner(model_size="small", device=device)
@@ -388,7 +388,7 @@ class SpeechTextAligner:
         else:
             if lang is None:
                 lang = self.whisper_aligner.detect_language(audio_path)
-                print(f"[Info] detected language: {lang}")
+                # print(f"[Info] detected language: {lang}")
             if lang == "english" or lang == "en":
                 return self.mfa_aligner_en.align(audio_path, text)
             elif lang == "chinese" or lang == "zh":

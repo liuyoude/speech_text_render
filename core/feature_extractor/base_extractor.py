@@ -5,7 +5,7 @@ date: 20250417
 author: liuyoude
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from core.audio_aligner.audio_aligner import TimeSegment
 
 class BaseExtractor(ABC):
@@ -18,13 +18,13 @@ class BaseExtractor(ABC):
         pass
     
     @abstractmethod
-    def extract(self, audio_path: str, text: Optional[str] = None, time_segments: Optional[TimeSegment] = None) -> Dict:
+    def extract(self, audio_path: str, time_segments: List[TimeSegment]) -> Dict:
         """
         Extract features from audio and optional text.
         
         Args:
-            audio_path: Path to the audio file
-            text: Optional text corresponding to the audio
+            time_segments (List[TimeSegment]): List of time segments for alignment.
+            
             
         Returns:
             Dictionary containing extracted features and controls
