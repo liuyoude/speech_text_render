@@ -13,6 +13,7 @@ import time
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.audio_aligner import (
     WhisperAligner,
+    WhisperXAligner,
     MFAAligner,
     SpeechTextAligner, 
     plot_alignment
