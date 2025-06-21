@@ -388,21 +388,36 @@ class SpeechTextAligner(BaseAligner):
         self.whisper_aligner = WhisperAligner(model_size="small", device=device)
         self.mfa_aligner_en = MFAAligner(lang="english")
         self.mfa_aligner_zh = MFAAligner(lang="chinese")
+        self.time_segments = []
+        self.lang = None
 
     def align(self, audio_path: str, text: str = None, lang: str = None) -> List[TimeSegment]:
-        if text is None:
-            return self.whisper_aligner.align(audio_path)
+        if lang is None:
+            self.lang = self.whisper_aligner.detect_language(audio_path)
         else:
-            if lang is None:
-                lang = self.whisper_aligner.detect_language(audio_path)
-                # print(f"[Info] detected language: {lang}")
-            if lang == "english" or lang == "en":
-                return self.mfa_aligner_en.align(audio_path, text)
-            elif lang == "chinese" or lang == "zh":
-                # return self.mfa_aligner_zh.align(audio_path, text)
-                return self.whisper_aligner.align(audio_path, text)
+            self.lang = lang.lower()
+        if text is None:
+            self.time_segments = self.whisper_aligner.align(audio_path)
+        else:
+            if self.lang == "english" or self.lang == "en":
+                self.time_segments = self.mfa_aligner_en.align(audio_path, text)
+            elif self.lang == "chinese" or self.lang == "zh":
+                # self.time_segments = self.mfa_aligner_zh.align(audio_path, text)
+                self.time_segments = self.whisper_aligner.align(audio_path, text)
             else:
                 raise ValueError(f"Unsupported language: {lang}")
+        return self.time_segments
+
+    def plot(self, audio_path: str, save_path: str=None):
+        if len(self.time_segments) == 0:
+            raise ValueError("No alignment result, please align first")
+        plot_alignment(audio_path, self.time_segments, save_path)
+
+    def test(self, audio_path: str, text: str, lang: str):
+        self.align(audio_path, text, lang)
+        for seg in self.time_segments:
+            print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
+        self.plot(audio_path)
     
 def plot_alignment(audio_path, segments, save_path=None):
     import matplotlib.pyplot as plt

@@ -18,7 +18,7 @@ class BaseExtractor(ABC):
         pass
     
     @abstractmethod
-    def extract(self, audio_path: str, time_segments: List[TimeSegment]) -> Dict:
+    def extract(self, audio_path: str, time_segments: List[TimeSegment], lang: str=None) -> Dict:
         """
         Extract features from audio and optional text.
         
