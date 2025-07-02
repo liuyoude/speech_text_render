@@ -50,7 +50,9 @@ class ControlGenerator:
                     controls[extract['pos']] = f'[{extract["type"]}={extract["value"]}]'
                 else:
                     controls[extract['pos']] += f'[{extract["type"]}={extract["value"]}]'
-                    controls[extract['pos']].replace('][', ',')
+        # merge control text in the same pos
+        for pos in controls:
+            controls[pos] = f'[{controls[pos][1:-1].replace("][", ",")}]'
         return controls
     
 class ControlBuilder:
@@ -77,27 +79,25 @@ class ControlBuilder:
     def plot(self, save_path: str = None) -> None:
         plot_alignment(self.audio_path, self.time_segments, save_path)
 
-    def test(self, audio_path: str, text: str) -> None:
-        """
-        测试控制文本生成
-        input:
-            - audio_path: 音频路径
-            - text: 文本
-        """
+    def test(self, audio_path: str, text: str, lang: str=None, plot: bool=False) -> None:
         control_text = builder.build(audio_path, text)
         print(control_text)
-        self.plot()        
+        if plot:
+            self.plot()        
         
     
 if __name__ == "__main__":
     config = {
+        "pause_extractor": {
+            "number_control": False,
+        },
         "speed_extractor": {
-            "use_ratio": False,
+            "number_control": True,
         }
     }
     builder = ControlBuilder(config)
     extractors = [
-        PauseExtractor(config),
+        PauseExtractor(config['pause_extractor']),
         SpeedExtractor(config['speed_extractor']),
     ]
     builder.add_extractor(extractors)
@@ -106,10 +106,13 @@ if __name__ == "__main__":
     # for audio_path, text_path in zip(audio_path_list, text_path_list):
     #     with open(text_path, 'r', encoding='utf-8') as f:
     #         ori_text_en = f.read()
-    #     builder.test(audio_path, ori_text_en)
+    #     builder.test(audio_path, ori_text_en, plot=False)
 
-    file_path_en = r"examples/audios/en/LJ001-0005.wav"
-    ori_text_en = "the invention of movable metal letters in the middle of the fifteenth century may justly be considered as the invention of the art of printing."
+    file_path_en = r"examples/audios/en/LJ001-0001.wav"
+    ori_text_en = "Printing, in the only sense with which we are at present concerned, differs from most if not from all the arts and crafts represented in the Exhibition?"
+    file_path_zh = r"examples/audios/zh/D4_752.wav"
+    ori_text_zh = "他们走到四马路一家茶室铺里，二九说要买鱘鱼，他给买了，又给转儿买了饼干。"
     builder.test(file_path_en, ori_text_en)
-    # for seg in builder.time_segments:
-    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")   
+    # builder.test(file_path_zh, ori_text_zh)
+    for seg in builder.time_segments:
+        print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")   

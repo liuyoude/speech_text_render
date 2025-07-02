@@ -15,10 +15,9 @@ from core.audio_aligner import TextNormalizer
 class SpeedExtractor(BaseExtractor):
     def __init__(self, config):
         super().__init__(config)
-        # 控制符类型
         self.type = 'speed'
-        self.default_use_ratio = True
-        # 语速分级配置（单位：字/秒）
+        self.default_number_control = True
+        # speed config
         self.default_chinese_speed_levels = {
             'xslow': (1.5, 2.5),     # 极慢 1.5-2.5字/秒 (朗诵、诗歌)
             'slow': (2.5, 3.3),      # 慢速 2.5-3.3字/秒 (情感表达、教学)
@@ -40,7 +39,7 @@ class SpeedExtractor(BaseExtractor):
         self.chinese_speed_levels = self.config.get('chinese_speed_levels', self.default_chinese_speed_levels)
         self.english_speed_levels = self.config.get('english_speed_levels', self.default_english_speed_levels)
         self.reference_speed = self.config.get('reference_speed', self.default_reference_speed)
-        self.use_ratio = self.config.get('use_ratio', self.default_use_ratio)
+        self.number_control = self.config.get('number_control', self.default_number_control)
         self.text_normalizer = TextNormalizer()
 
     def load_model(self) -> None:
@@ -49,19 +48,7 @@ class SpeedExtractor(BaseExtractor):
         
     def extract(self, audio_path: str, time_segments: List[TimeSegment], lang: str) -> List[Dict]:
         """
-        提取句级语速控制符
-        
-        参数:
-            time_segments: 对齐后的时间分段列表
-            
-        返回:
-            [{
-                type: 'speed', 
-                value: 语速级别（如'normal'）,
-                ratio: 相对于基准语速的比值,
-                scope: 'sentence',
-                sentence_index: 句子索引
-            }]
+        extract speed control
         """
         if lang in ['chinese', 'zh']:
             speed_levels = self.chinese_speed_levels
@@ -71,7 +58,6 @@ class SpeedExtractor(BaseExtractor):
             ref_speed = self.reference_speed['english']
         else:
             raise ValueError(f"Unsupported language: {lang}")
-        # 按句子分组时间分段
         speed_controls = []
         pos = 0
         for seg in time_segments:
@@ -80,13 +66,13 @@ class SpeedExtractor(BaseExtractor):
                 word_count = len(self.text_normalizer.normalize(seg.text).split())
                 speed = word_count / duration if duration > 0 else 0
                 speed_ratio = round(speed / ref_speed, 1)
-                if self.use_ratio:
+                if self.number_control:
                     if speed_ratio < 0.9 or speed_ratio > 1.1:
                         speed_controls.append({
                             "type": self.type,
                             "value": speed_ratio,
                             "pos": pos,
-                            "info": f'speed={speed:.2f}',
+                            "info": f'speed={speed:.2f}word/s',
                         })
                 else:
                     speed_level = self._get_speed_level(speed, speed_levels)
@@ -101,7 +87,6 @@ class SpeedExtractor(BaseExtractor):
         return speed_controls
 
     def _get_speed_level(self, speed: float, speed_levels: Dict) -> str:
-        """根据实际语速确定控制符级别"""
         for level, (min_val, max_val) in speed_levels.items():
             if min_val <= speed < max_val:
                 return level

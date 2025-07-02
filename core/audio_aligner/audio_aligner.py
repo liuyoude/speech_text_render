@@ -79,6 +79,15 @@ class WhisperAligner(BaseAligner):
             except AlignmentError as e:
                 print(e)
                 print("Skip Error correction")
+        word_segments, sentence_segments, paragraph_segments = [], [], []
+        for seg in segments:
+            if seg.type == "word":
+                word_segments.append(seg)
+            elif seg.type == "sentence":
+                sentence_segments.append(seg)
+            elif seg.type == "paragraph":
+                paragraph_segments.append(seg)
+        segments = word_segments + sentence_segments + paragraph_segments
         return segments
 
     def detect_language(self, audio_path):
@@ -129,13 +138,15 @@ class WhisperAligner(BaseAligner):
                         type="word",
                     ))                    
             # sentence level segments
-            sentence_segments.append(TimeSegment(
+            # sentence_segments.append(TimeSegment(
+            segments.append(TimeSegment(
                 start=seg["start"],
                 end=seg["end"],
                 text=seg["text"],
                 type="sentence",
             ))
-        return segments + sentence_segments + paragraph_segments
+        # return segments + sentence_segments + paragraph_segments
+        return segments + paragraph_segments    
 
     def _correct_text_Errors(self, original_text: str, 
                             whisper_segments: List[TimeSegment]) -> List[TimeSegment]:
