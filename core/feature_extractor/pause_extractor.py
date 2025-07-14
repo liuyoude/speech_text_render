@@ -18,9 +18,9 @@ class PauseExtractor(BaseExtractor):
         self.type = 'break'
         self.default_number_control = False
         self.default_pause_levels = {
-            'none': 0.1,
-            'short': 0.3,
-            'medium': 0.8,
+            'none': 0.2, # 0.1
+            'short': 0.5, # 0.3
+            'medium': 0.9, # 0.8
             'long': 1.5,
             'xlong': np.float64('inf'),
         }
@@ -37,8 +37,8 @@ class PauseExtractor(BaseExtractor):
         """
         pause_controls = []
         prev_seg, curr_seg = None, None
-        seg_idx = 0
-        for curr_seg in time_segments:
+        # seg_idx = 0
+        for seg_idx, curr_seg in enumerate(time_segments):
             if curr_seg.type == 'word':
                 if prev_seg is not None:
                     gap = curr_seg.start - prev_seg.end
@@ -53,7 +53,7 @@ class PauseExtractor(BaseExtractor):
                             # "dur": round(gap, 3)
                         })
                 prev_seg = curr_seg
-                seg_idx += 1
+                # seg_idx += 1
         return pause_controls
     
     def _get_pause_level(self, gap: float, pause_levels: Dict) -> str:

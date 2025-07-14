@@ -60,10 +60,13 @@ class SpeedExtractor(BaseExtractor):
             raise ValueError(f"Unsupported language: {lang}")
         speed_controls = []
         pos = 0
-        for seg in time_segments:
+        pos_location_flag = True
+        word_count = 0
+        for seg_idx, seg in enumerate(time_segments):
             if seg.type == 'sentence':
+                pos_location_flag = True
                 duration = seg.end - seg.start
-                word_count = len(self.text_normalizer.normalize(seg.text).split())
+                # word_count = len(self.text_normalizer.normalize(seg.text).split())
                 speed = word_count / duration if duration > 0 else 0
                 speed_ratio = round(speed / ref_speed, 1)
                 if self.number_control:
@@ -83,7 +86,14 @@ class SpeedExtractor(BaseExtractor):
                             "pos": pos,
                             "info": f'speed={speed:.2f}word/s',
                         })
-                pos += word_count
+                # pos += word_count
+                word_count = 0
+            elif seg.type == 'word':
+                word_count += 1
+                if pos_location_flag:
+                    pos = seg_idx
+                    pos_location_flag = False
+
         return speed_controls
 
     def _get_speed_level(self, speed: float, speed_levels: Dict) -> str:
