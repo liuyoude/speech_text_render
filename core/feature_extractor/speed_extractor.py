@@ -16,7 +16,6 @@ class SpeedExtractor(BaseExtractor):
     def __init__(self, config):
         super().__init__(config)
         self.type = 'speed'
-        self.default_number_control = True
         # speed config
         self.default_chinese_speed_levels = {
             'xslow': (1.5, 2.5),     # 极慢 1.5-2.5字/秒 (朗诵、诗歌)
@@ -35,11 +34,11 @@ class SpeedExtractor(BaseExtractor):
         self.default_reference_speed = {
             'chinese': 3.8,  # 中文参考语速
             'english': 4.2,  # 英文参考语速
-        }        
+        }
+        self.number_control = self.config.get('number_control', True)        
         self.chinese_speed_levels = self.config.get('chinese_speed_levels', self.default_chinese_speed_levels)
         self.english_speed_levels = self.config.get('english_speed_levels', self.default_english_speed_levels)
         self.reference_speed = self.config.get('reference_speed', self.default_reference_speed)
-        self.number_control = self.config.get('number_control', self.default_number_control)
         self.text_normalizer = TextNormalizer()
 
     def load_model(self) -> None:

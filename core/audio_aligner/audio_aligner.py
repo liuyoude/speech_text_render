@@ -615,11 +615,11 @@ if __name__ == "__main__":
     file_path_en = r"examples/audios/en/LJ001-0005.wav"
     ori_text_en = "the invention of movable metal letters in the middle of the fifteenth century may justly be considered as the invention of the art of printing."
 
-    # file_path_zh = r"examples/audios/zh/D4_750.wav"
-    # ori_text_zh = "苏北军的一些爱国将士，马战山、李渡、唐巨武、苏炳爱、邓铁梅等也奋起抗战。"
+    file_path_zh = r"examples/audios/zh/D4_750.wav"
+    ori_text_zh = "苏北军的一些爱国将士，马战山、李渡、唐巨武、苏炳爱、邓铁梅等也奋起抗战。"
 
-    file_path_zh = r"examples/audios/zh/D4_752.wav"
-    ori_text_zh = "他们走到四马路一家茶室铺里，二九说要买鱘鱼，他给买了，又给转儿买了饼干。"
+    # file_path_zh = r"examples/audios/zh/D4_752.wav"
+    # ori_text_zh = "他们走到四马路一家茶室铺里，二九说要买鱘鱼，他给买了，又给转儿买了饼干。"
 
     # file_path_zh = r"examples/audios/zh/D4_754.wav"
     # ori_text_zh = "由太原市南郊区寇庄村农民投资数百万元建设的平阳集贸市场，因管理等诸多方面的原因已停业一年。"
@@ -631,7 +631,7 @@ if __name__ == "__main__":
     _, sr_en = librosa.load(file_path_en, sr=None, mono=True)
     print(f"sr_zh: {sr_zh}, sr_en: {sr_en}")
 
-    whisper_aligner = WhisperAligner(model_size="small", device="cpu", time_fix=True)
+    whisper_aligner = WhisperAligner(model_size="small", device="cuda", time_fix=True)
     # ori_text_norm = ['现', '在', '是', '测', '试', 'vciper', '的', '音', '频', '它', '能', '分', '辨', '出', '这', '个', '分', '段', '吗', '真', '的', '吗', '可', '以', '吗', '嗯']
     # pred_text_norm = ['现', '在', '是', '测', '试', 'v', 'is', 'ible', '的', '音', '频', '它', '能', '分', '辨', '出', '这', '个', '分', '段', '吗', '真', '的', '吗', '可', '以', '吗', '嗯']
     # for res in whisper_aligner._dynamic_align_words(ori_text_norm, pred_text_norm):
@@ -643,10 +643,10 @@ if __name__ == "__main__":
     #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})") 
     # plot_alignment(file_path_en, segments)    
 
-    # segments = whisper_aligner.align(file_path_zh)
-    # for seg in segments:
-    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})") 
-    # plot_alignment(file_path_zh, segments) 
+    segments = whisper_aligner.align(file_path_zh)
+    for seg in segments:
+        print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})") 
+    plot_alignment(file_path_zh, segments) 
 
     # text provided for Error correction
     # segments = whisper_aligner.align(file_path_en, text=ori_text_en)
@@ -676,12 +676,12 @@ if __name__ == "__main__":
 
     speech_text_aligner = SpeechTextAligner(device='cpu', time_fix=True)
 
-    segments_zh = speech_text_aligner.align(file_path_zh, ori_text_zh)
-    for seg in segments_zh:
-        print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
-    plot_alignment(file_path_zh, segments_zh)  
+    # segments_zh = speech_text_aligner.align(file_path_zh, ori_text_zh)
+    # for seg in segments_zh:
+    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
+    # plot_alignment(file_path_zh, segments_zh)  
 
-    segments_en = speech_text_aligner.align(file_path_en, ori_text_en)
-    for seg in segments_en:
-        print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
-    plot_alignment(file_path_en, segments_en)
+    # segments_en = speech_text_aligner.align(file_path_en, ori_text_en)
+    # for seg in segments_en:
+    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
+    # plot_alignment(file_path_en, segments_en)

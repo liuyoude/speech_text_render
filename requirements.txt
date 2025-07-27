@@ -1,3 +1,6 @@
+torch 
+torchvision 
+torchaudio
 librosa==0.11.0
 git+https://github.com/openai/whisper.git
 # montreal-forced-aligner: conda install -c conda-forge montreal-forced-aligner
@@ -8,7 +11,8 @@ git+https://github.com/openai/whisper.git
 numpy==1.23.0
 # mfa chinese normalize need:
 seaborn
-spacy-pkuseg 
-dragonmapper 
-hanziconv
 pypinyin
+# emotion speaker extractor
+funasr
+# whisper load audio
+# ffmpeg

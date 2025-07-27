@@ -16,7 +16,6 @@ class VolumeExtractor(BaseExtractor):
     def __init__(self, config):
         super().__init__(config)
         self.type = 'volume'
-        self.default_number_control = False
         # 默认配置
         # self.default_volume_levels = {
         #     'whisper': (0.0, 0.4),    # 轻声/耳语
@@ -47,7 +46,7 @@ class VolumeExtractor(BaseExtractor):
         self.target_hop_ms = 10    # 目标跳步长度10ms
         
         # 应用配置
-        self.number_control = self.config.get('number_control', self.default_number_control)
+        self.number_control = self.config.get('number_control', False)
         self.word_volume_levels = self.config.get('word_volume_levels', self.default_word_volume_levels)
         self.word_duration_threshold = self.config.get('word_duration_threshold', self.default_word_duration_threshold)
         self.sentence_volume_levels = self.config.get('sentence_volume_levels', self.default_sentence_volume_levels)

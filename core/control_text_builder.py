@@ -11,7 +11,7 @@ from typing import Dict, Optional, List, Tuple, Union
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.feature_extractor.base_extractor import BaseExtractor, TimeSegment
 from core.audio_aligner.audio_aligner import SpeechTextAligner, plot_alignment
-from core.feature_extractor import PauseExtractor, SpeedExtractor, VolumeExtractor
+from core.feature_extractor import PauseExtractor, SpeedExtractor, VolumeExtractor, EmotionExtractor
 
 def get_audio_text_path_list(root_dir):
     ext = '.wav'
@@ -58,7 +58,7 @@ class ControlGenerator:
 class ControlBuilder:
     def __init__(self, config):
         self.config = config
-        self.aligner = SpeechTextAligner()  # 音频对齐器
+        self.aligner = SpeechTextAligner(device='cuda')  # 音频对齐器
         self.control_generator = ControlGenerator(config)
 
     def build(self, audio_path: str, text: str, lang: str=None) -> str:
@@ -97,27 +97,35 @@ if __name__ == "__main__":
         "volume_extractor": {
             "number_control": False,
         },
+        "emotion_extractor": {
+            "sentence_level": True,
+            "number_control": False,
+            "device": "cuda",
+            'multi_emotion': True,
+        },
     }
     builder = ControlBuilder(config)
     extractors = [
-        PauseExtractor(config['pause_extractor']),
-        SpeedExtractor(config['speed_extractor']),
+        # PauseExtractor(config['pause_extractor']),
+        # SpeedExtractor(config['speed_extractor']),
         VolumeExtractor(config['volume_extractor']),
+        # EmotionExtractor(config['emotion_extractor']),
     ]
     builder.add_extractor(extractors)
 
-    # audio_path_list, text_path_list = get_audio_text_path_list(r"examples/audios")
-    # for audio_path, text_path in zip(audio_path_list, text_path_list):
-    #     with open(text_path, 'r', encoding='utf-8') as f:
-    #         ori_text_en = f.read()
-    #     builder.test(audio_path, ori_text_en, plot=False)
+    audio_path_list, text_path_list = get_audio_text_path_list(r"examples/audios")
+    for audio_path, text_path in zip(audio_path_list, text_path_list):
+        with open(text_path, 'r', encoding='utf-8') as f:
+            ori_text_en = f.read()
+        builder.test(audio_path, ori_text_en, plot=False)
 
-    file_path_en = r"examples/audios/en/LJ001-0001.wav"
-    ori_text_en = "Printing, in the only sense with which we are at present concerned, differs from most if not from all the arts and crafts represented in the Exhibition?"
-    file_path_zh = r"examples/audios/zh/D4_752.wav"
-    ori_text_zh = "他们走到四马路一家茶室铺里，二九说要买鱘鱼，他给买了，又给转儿买了饼干。"
+
+    # file_path_en = r"examples/audios/en/LJ001-0001.wav"
+    # ori_text_en = "Printing, in the only sense with which we are at present concerned, differs from most if not from all the arts and crafts represented in the Exhibition?"
+    # file_path_zh = "examples/audios/zh/D4_752.wav"
+    # ori_text_zh = "他们走到四马路一家茶室铺里，二九说要买鱘鱼，他给买了，又给转儿买了饼干。"
     # builder.test(file_path_en, ori_text_en)
-    builder.test(file_path_zh, ori_text_zh)
-    for seg in builder.time_segments:
-        print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
-    builder.plot(save_path=False)
+    # # builder.test(file_path_zh, ori_text_zh)
+    # for seg in builder.time_segments:
+    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
+    # builder.plot(save_path=False)
