@@ -151,7 +151,6 @@ class WhisperAligner(BaseAligner):
             torch.backends.cudnn.benchmark = True
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
-            self.model = torch.compile(self.model) 
     
     def align(self, audio_path, text=None):
         audio = whisper.load_audio(audio_path)
@@ -560,8 +559,11 @@ def plot_alignment(audio_path, segments, save_path=None):
     import matplotlib.pyplot as plt
     import numpy as np
     import librosa
-    plt.rcParams['font.sans-serif'] = ['SimHei']  # 指定全局中文字体
-    plt.rcParams['axes.unicode_minus'] = False    # 解决负号显示为方块的问题
+    import matplotlib.font_manager as fm
+    zh_fonts = ['SimHei', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'AR PL UMing CN', 'DejaVu Sans']
+    available = {f.name for f in fm.fontManager.ttflist}
+    plt.rcParams['font.sans-serif'] = [f for f in zh_fonts if f in available] or ['DejaVu Sans']
+    plt.rcParams['axes.unicode_minus'] = False
 
     audio, sr = librosa.load(audio_path, sr=None, mono=True)
     plt.figure(figsize=(15, 6))

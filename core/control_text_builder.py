@@ -58,7 +58,8 @@ class ControlGenerator:
 class ControlBuilder:
     def __init__(self, config):
         self.config = config
-        self.aligner = SpeechTextAligner(device='cuda')  # 音频对齐器
+        device = config.get('device', 'cuda')
+        self.aligner = SpeechTextAligner(device=device)
         self.control_generator = ControlGenerator(config)
 
     def build(self, audio_path: str, text: str, lang: str=None) -> str:
@@ -80,7 +81,7 @@ class ControlBuilder:
         plot_alignment(self.audio_path, self.time_segments, save_path)
 
     def test(self, audio_path: str, text: str, lang: str=None, plot: bool=False) -> None:
-        control_text = builder.build(audio_path, text)
+        control_text = self.build(audio_path, text)
         print(control_text)
         if plot:
             self.plot()        
@@ -109,7 +110,7 @@ if __name__ == "__main__":
         # PauseExtractor(config['pause_extractor']),
         # SpeedExtractor(config['speed_extractor']),
         VolumeExtractor(config['volume_extractor']),
-        # EmotionExtractor(config['emotion_extractor']),
+        EmotionExtractor(config['emotion_extractor']),
     ]
     builder.add_extractor(extractors)
 

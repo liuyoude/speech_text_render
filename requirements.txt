@@ -16,3 +16,6 @@ pypinyin
 funasr
 # whisper load audio
 # ffmpeg
+textgrid
+tqdm
+matplotlib

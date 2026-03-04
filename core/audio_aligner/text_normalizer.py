@@ -9,8 +9,8 @@ import unicodedata
 
 # sentence end char sets
 SENTENCE_END_CHARS = {
-    '。', '！', '？', '…', '，', '、' # chinese punctuation
-    '.', '!', '?', ':', ';', ','  # english punctuation
+    '。', '！', '？', '…', '，', '、',  # chinese punctuation
+    '.', '!', '?', ':', ';', ',',  # english punctuation
 }
 
 class TextNormalizer:

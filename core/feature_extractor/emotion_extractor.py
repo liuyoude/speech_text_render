@@ -162,27 +162,14 @@ class EmotionExtractor(BaseExtractor):
                                                     extract_embedding=False,
                                                     )
                 
-                # 仅当置信度足够高时记录
-                # if emotion_output['confidence'] > self.min_confidence:
-                if True:
-                    emotion, intensity, confidence = self._parse_emotion_output(emotion_output[0])
-                    
-                    # # 跳过中性情绪
-                    # if emotion != 'neutral':
-                    #     emotion_controls.append({
-                    #         "type": self.type,
-                    #         "value": emotion,
-                    #         "intensity": intensity,
-                    #         "pos": seg_idx,
-                    #         "scope": "word",
-                    #         "info": f"confidence={emotion_output['confidence']:.2f}"
-                    #     })
-                if emotion and intensity:
+                emotion_str = self._parse_emotion_output(emotion_output[0])
+                
+                if emotion_str:
                     emotion_controls.append({
                         "type": self.type,
-                        "value": f'{confidence:.2f}{emotion}',
+                        "value": emotion_str,
                         "pos": seg_idx,
-                        "info": f"[{segment.text}] emo={emotion}, intensity={intensity}, confidence={confidence:.2f}"
+                        "info": f"[{segment.text}] emo={emotion_str}"
                     })
         
         return emotion_controls

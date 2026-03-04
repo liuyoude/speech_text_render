@@ -263,3 +263,58 @@ class VolumeExtractor(BaseExtractor):
         """找到最接近的2的幂"""
         return 2 ** int(np.log2(n) + 0.5)
     
+if __name__ == '__main__':
+    import torchcrepe
+    import matplotlib.pyplot as plt
+    import torch
+
+    # audio_path = r"examples/audios/en/LJ001-0001.wav"
+    audio_path = r"examples/audios/zh/normal.wav"
+    # Load audio
+    audio, sr = torchcrepe.load.audio(audio_path)
+    audio = audio[0:1, :]
+    duration = audio.shape[1] / sr
+
+    n_fft, hop_length, n_mels = 512, 256, 64
+    S = librosa.feature.melspectrogram(y=audio[0].numpy(), sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels)
+    S_db = librosa.amplitude_to_db(S, ref=np.max)
+
+    # Here we'll use a 5 millisecond hop length
+    # hop_length = int(sr / 200.)
+
+    # Provide a sensible frequency range for your domain (upper limit is 2006 Hz)
+    # This would be a reasonable range for speech
+    fmin = 50
+    fmax = 550
+
+    # Select a model capacity--one of "tiny" or "full"
+    model = 'tiny'
+
+    # Choose a device to use for inference
+    device = 'cuda:0'
+
+    # Pick a batch size that doesn't cause memory errors on your gpu
+    batch_size = 2048
+
+    # Compute pitch using first gpu
+    pitch = torchcrepe.predict(audio,
+                            sr,
+                            hop_length,
+                            fmin,
+                            fmax,
+                            model,
+                            batch_size=batch_size,
+                            device=device) 
+    ax1 = plt.subplot(1, 1, 1)
+    # ax2 = plt.subplot(2, 1, 2)
+    time_axis = np.linspace(0, duration, pitch.shape[1])
+    ax1.plot(time_axis,pitch[0])
+
+    # 绘制对数功率谱（时间对齐）
+    img = librosa.display.specshow(S_db, sr=sr, x_axis='time',
+                          y_axis='mel', ax=ax1,
+                          hop_length=hop_length,
+                          cmap='viridis')
+    # plt.plot(pitch[0])
+    plt.show()
+    
