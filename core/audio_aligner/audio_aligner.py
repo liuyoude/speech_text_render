@@ -478,6 +478,8 @@ class MFAAligner(BaseAligner):
         ]
 
     def _merge_to_sentences(self, word_segments: List[TimeSegment], original_text: str) -> List[TimeSegment]:
+        if not word_segments:
+            return []
         # 重建原始文本结构
         current_sentence = []
         original_words = self.text_normalizer.normalize(original_text).split()
