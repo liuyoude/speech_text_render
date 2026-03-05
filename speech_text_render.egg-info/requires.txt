@@ -1,0 +1,13 @@
+librosa==0.11.0
+numpy==1.23.0
+seaborn
+pypinyin
+funasr
+textgrid
+tqdm
+matplotlib
+openai-whisper @ git+https://github.com/openai/whisper.git
+
+[dev]
+pytest
+ruff

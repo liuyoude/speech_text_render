@@ -5,12 +5,9 @@ date: 20250427
 author: liuyoude
 """
 import os
-import sys
 import matplotlib.pyplot as plt
 import tqdm
 import time
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.audio_aligner import (
     WhisperAligner,
     # WhisperXAligner,

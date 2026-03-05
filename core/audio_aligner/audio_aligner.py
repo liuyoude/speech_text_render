@@ -4,22 +4,24 @@ align audio and text, get time segments for each word/sentence
 date: 20250422
 author: liuyoude
 """
+import logging
 import os
-import sys
 import re
 import subprocess
 import tempfile
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, List, Tuple
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 from textgrid import TextGrid
 from pypinyin import pinyin, Style, lazy_pinyin
 import whisper
 import torch
 import librosa
 import numpy as np
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from core.audio_aligner.text_normalizer import TextNormalizer, SENTENCE_END_CHARS, is_punctuation
+from core.utils.audio_utils import calculate_perceptual_energy
 
 @dataclass
 class TimeSegment:
@@ -51,7 +53,7 @@ class SegmentFixer:
         """修正时间段，去除可能存在的静音片段"""
         audio, sr = librosa.load(audio_path, sr=None, mono=True)
         frame_length, hop_length = self._calculate_frame_params(sr)
-        full_energy = self._calculate_perceptual_energy(audio, sr, frame_length, hop_length)
+        full_energy = calculate_perceptual_energy(audio, sr, frame_length, hop_length)
         first_word_seg, last_word_seg = None, None
         first_sentence_seg, last_sentence_seg = None, None
         for seg in time_segments:
@@ -82,23 +84,6 @@ class SegmentFixer:
         # 确保跳步长度至少为1
         hop_length = max(1, hop_length)
         return frame_length, hop_length
-    
-    def _calculate_perceptual_energy(self, y, sr, frame_length, hop_length):
-        """改进的感知能量计算"""
-        # 计算频谱
-        S = np.abs(librosa.stft(y, n_fft=frame_length, hop_length=hop_length))
-        # if self.use_perceptual_weighting:
-        if True:
-            # 应用A-weighting曲线模拟人耳感知
-            freqs = librosa.fft_frequencies(sr=sr, n_fft=frame_length)
-            a_weighting = librosa.A_weighting(freqs + 1e-8)
-            a_weighting = librosa.db_to_power(a_weighting)  # 转换为线性标度
-            # 扩展维度以匹配频谱
-            a_weighting = np.expand_dims(a_weighting, axis=1)
-            S = S * a_weighting
-        # 计算感知能量
-        perceptual_energy = np.sqrt(np.sum(S**2, axis=0)) / frame_length        
-        return perceptual_energy
     
     def _fix_word_segment(self, full_energy, sr, time_segment, hop_length, silence_threshold):
         """提取指定时间段内的能量值，并过滤静音片段"""
@@ -176,8 +161,8 @@ class WhisperAligner(BaseAligner):
             try:
                 segments = self._correct_text_Errors(text, segments)
             except AlignmentError as e:
-                print(e)
-                print("Skip Error correction")
+                logger.warning("Text correction error: %s", e)
+                logger.warning("Skip Error correction")
         # word_segments, sentence_segments, paragraph_segments = [], [], []
         # for seg in segments:
         #     if seg.type == "word":
@@ -554,7 +539,7 @@ class SpeechTextAligner(BaseAligner):
     def test(self, audio_path: str, text: str, lang: str):
         self.align(audio_path, text, lang)
         for seg in self.time_segments:
-            print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
+            logger.debug("[%.2f-%.2f] %s (type: %s)", seg.start, seg.end, seg.text, seg.type)
         self.plot(audio_path)
     
 def plot_alignment(audio_path, segments, save_path=None):

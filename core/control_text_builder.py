@@ -4,12 +4,12 @@ control generator using extractor
 date: 20250514
 author: liuyoude
 """
+import logging
 import os
-import sys
 from typing import Dict, Optional, List, Tuple, Union
-# print(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.feature_extractor.base_extractor import BaseExtractor, TimeSegment
+
+logger = logging.getLogger(__name__)
 from core.audio_aligner.audio_aligner import SpeechTextAligner, plot_alignment
 from core.feature_extractor import PauseExtractor, SpeedExtractor, VolumeExtractor, EmotionExtractor
 
@@ -37,7 +37,7 @@ class ControlGenerator:
         else:
             self.extractors[extractor.type] = extractor
 
-    def generate(self, audio_path: str, time_segments: List[TimeSegment], lang: str=None) -> List[Dict]:
+    def generate(self, audio_path: str, time_segments: List[TimeSegment], lang: str=None) -> Dict[int, str]:
         """
         generate control flag and text
         """
@@ -45,15 +45,15 @@ class ControlGenerator:
         for extractor in self.extractors.values():
             extracts = extractor.extract(audio_path, time_segments, lang=lang)
             for extract in extracts:
-                print(f'type: {extract["type"]}=={extract["value"]}, info: {extract["info"]}')
+                logger.debug(f'type: {extract["type"]}=={extract["value"]}, info: {extract["info"]}')
                 if extract['pos'] not in controls:
-                    controls[extract['pos']] = f'[{extract["type"]}={extract["value"]}]'
-                else:
-                    controls[extract['pos']] += f'[{extract["type"]}={extract["value"]}]'
-        # merge control text in the same pos
-        for pos in controls:
-            controls[pos] = f'[{controls[pos][1:-1].replace("][", ",")}]'
-        return controls
+                    controls[extract['pos']] = []
+                controls[extract['pos']].append(f'{extract["type"]}={extract["value"]}')
+
+        result = {}
+        for pos, items in controls.items():
+            result[pos] = f'[{",".join(items)}]'
+        return result
     
 class ControlBuilder:
     def __init__(self, config):
@@ -82,7 +82,7 @@ class ControlBuilder:
 
     def test(self, audio_path: str, text: str, lang: str=None, plot: bool=False) -> None:
         control_text = self.build(audio_path, text)
-        print(control_text)
+        logger.info(control_text)
         if plot:
             self.plot()        
         

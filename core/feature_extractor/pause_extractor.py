@@ -4,11 +4,8 @@ pause control extractor
 date: 20250514
 author: liuyoude
 """
-import os
-import sys
 import numpy as np
 from typing import Dict, Optional, List, Tuple
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from core.feature_extractor.base_extractor import BaseExtractor, TimeSegment
 
 class PauseExtractor(BaseExtractor):

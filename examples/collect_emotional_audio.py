@@ -26,7 +26,6 @@ from pathlib import Path
 
 import requests
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.audio_aligner import WhisperAligner
 
 BASE_URL = "https://raw.githubusercontent.com/HLTSingapore/ESD/main/audio"

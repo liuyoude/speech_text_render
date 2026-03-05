@@ -3,12 +3,12 @@ emotion control extractor
 date: 20250621
 author: liuyoude
 """
-import os
-import sys
+import logging
 import numpy as np
 from typing import Dict, Optional, List, Tuple
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from core.feature_extractor.base_extractor import BaseExtractor, TimeSegment
+
+logger = logging.getLogger(__name__)
 
 class EmotionExtractor(BaseExtractor):
     def __init__(self, config):
@@ -36,7 +36,7 @@ class EmotionExtractor(BaseExtractor):
         self.device = config.get('device', 'cuda')
         self.sr = config.get('sr', 16000) # sample rate
         
-        self.sentence_level = "True" # not support for word level
+        self.sentence_level = True  # not support for word level
         # 模型初始化标志
         self.model_loaded = False
 

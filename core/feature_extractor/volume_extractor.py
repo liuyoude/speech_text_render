@@ -4,13 +4,11 @@ volume control extractor
 date: 20250704
 author: liuyoude
 """
-import os
-import sys
 import librosa
 import numpy as np
 from typing import Dict, Optional, List, Tuple
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from core.feature_extractor.base_extractor import BaseExtractor, TimeSegment
+from core.utils.audio_utils import calculate_perceptual_energy
 
 class VolumeExtractor(BaseExtractor):
     def __init__(self, config):
@@ -70,7 +68,7 @@ class VolumeExtractor(BaseExtractor):
         y, sr = self._load_audio(audio_path)
         frame_length, hop_length = self._calculate_frame_params(sr)
         # rms = self._calculate_rms(y, sr, frame_length, hop_length)
-        rms = self._calculate_perceptual_energy(y, sr, frame_length, hop_length)
+        rms = calculate_perceptual_energy(y, sr, frame_length, hop_length)
 
         # self.plot_volume_analysis(audio_path, rms, sr, hop_length, time_segments)
         
@@ -198,25 +196,6 @@ class VolumeExtractor(BaseExtractor):
             hop_length=hop_length
         )[0]
 
-    def _calculate_perceptual_energy(self, y, sr, frame_length, hop_length):
-        """改进的感知能量计算"""
-        # 计算频谱
-        S = np.abs(librosa.stft(y, n_fft=frame_length, hop_length=hop_length))
-        
-        # if self.use_perceptual_weighting:
-        if True:
-            # 应用A-weighting曲线模拟人耳感知
-            freqs = librosa.fft_frequencies(sr=sr, n_fft=frame_length)
-            a_weighting = librosa.A_weighting(freqs + 1e-8)
-            a_weighting = librosa.db_to_power(a_weighting)  # 转换为线性标度
-            # 扩展维度以匹配频谱
-            a_weighting = np.expand_dims(a_weighting, axis=1)
-            S = S * a_weighting
-        
-        # 计算感知能量
-        perceptual_energy = np.sqrt(np.sum(S**2, axis=0)) / frame_length        
-        return perceptual_energy
-    
     def _get_segment_rms(self, full_rms, sr, hop_length, start_time, end_time):
         """提取指定时间段内的RMS值"""
         frame_rate = sr / hop_length  # hop_length=512时的帧率
