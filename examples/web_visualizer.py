@@ -27,7 +27,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import matplotlib.patches as mpatches
-import whisper
 import gradio as gr
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -501,17 +500,9 @@ def on_recording_done(audio_path):
         return "", "en", None, None, f"rec_{_time.strftime('%Y%m%d_%H%M%S')}"
     try:
         a = _get_aligner()
-        lang = a.whisper_aligner.detect_language(audio_path)
-        audio_data = whisper.load_audio(audio_path)
-        result = a.whisper_aligner.model.transcribe(
-            audio_data, word_timestamps=True, temperature=0.0,
-            condition_on_previous_text=False,
-            fp16=a.whisper_aligner.device.type == "cuda",
-            hallucination_silence_threshold=0.1, beam_size=10,
-        )
-        text = result["text"].strip()
-        lang_map = {"english": "en", "chinese": "zh"}
-        lang_short = lang_map.get(lang, lang)
+        text, lang = a.qwen3_asr.transcribe(audio_path)
+        text = text.strip()
+        lang_short = lang if lang else "en"
         default_name = f"rec_{_time.strftime('%Y%m%d_%H%M%S')}"
         return text, lang_short, audio_path, audio_path, default_name
     except Exception as e:

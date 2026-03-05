@@ -60,13 +60,13 @@ fi
 conda activate "$ENV_NAME"
 
 # ---------------------------------------------------------------------------
-# 步骤 2: 安装 conda 包 (ffmpeg, MFA)
+# 步骤 2: 安装 conda 包 (ffmpeg)
 # ---------------------------------------------------------------------------
-if conda list -n "$ENV_NAME" | grep -q "^montreal-forced-aligner "; then
-    info "conda 包 (ffmpeg, MFA) 已安装，跳过"
+if conda list -n "$ENV_NAME" | grep -q "^ffmpeg "; then
+    info "conda 包 (ffmpeg) 已安装，跳过"
 else
-    info "安装 conda 包: ffmpeg, montreal-forced-aligner"
-    conda install -n "$ENV_NAME" -c conda-forge ffmpeg montreal-forced-aligner -y
+    info "安装 conda 包: ffmpeg"
+    conda install -n "$ENV_NAME" -c conda-forge ffmpeg -y
 fi
 
 # ---------------------------------------------------------------------------
@@ -116,25 +116,7 @@ if [ "$USE_CPU" = false ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 步骤 6: 下载 MFA 模型
-# ---------------------------------------------------------------------------
-download_mfa_model() {
-    local type="$1" name="$2"
-    if mfa models list "$type" 2>/dev/null | grep -q "$name"; then
-        info "MFA $type 模型 '$name' 已存在，跳过"
-    else
-        info "下载 MFA $type 模型: $name"
-        mfa models download "$type" "$name"
-    fi
-}
-
-download_mfa_model acoustic english_mfa
-download_mfa_model dictionary english_mfa
-
-# 项目自带中文 MFA 模型，不需要额外下载
-
-# ---------------------------------------------------------------------------
-# 步骤 7: 验证安装
+# 步骤 6: 验证安装
 # ---------------------------------------------------------------------------
 info "验证安装..."
 
@@ -142,18 +124,17 @@ export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 
 python -c "
 import torch
-import whisper
 import librosa
 import funasr
-import textgrid
+import qwen_asr
 import matplotlib
 print('所有核心包导入成功')
 print(f'  PyTorch:  {torch.__version__}')
 print(f'  CUDA:     {torch.cuda.is_available()}')
 if torch.cuda.is_available():
     print(f'  GPU:      {torch.cuda.get_device_name(0)}')
-print(f'  Whisper:  {whisper.__version__}')
 print(f'  FunASR:   {funasr.__version__}')
+print(f'  qwen-asr: {qwen_asr.__version__}')
 "
 
 info "============================================"

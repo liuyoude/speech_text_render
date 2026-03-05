@@ -4,7 +4,7 @@
 
 ## 功能
 
-- **音频-文本对齐**: Whisper（ASR）+ MFA（强制对齐）双级对齐，支持中英文及混合文本
+- **音频-文本对齐**: Qwen3-ASR（转录）+ Qwen3-ForcedAligner（强制对齐），支持中英文及多语言
 - **音量控制符**: 检测耳语 / 低音量片段，生成 `[volume=whisper]` 标签
 - **情感控制符**: 基于 emotion2vec 模型，生成 `[emotion=happy]` 等多情感标签
 - **停顿控制符**: 检测句间 / 句内停顿
@@ -30,7 +30,7 @@ conda create -n speech_text_render python=3.10 -y
 conda activate speech_text_render
 
 # 2. 安装 conda 包
-conda install -c conda-forge ffmpeg montreal-forced-aligner -y
+conda install -c conda-forge ffmpeg -y
 
 # 3. 安装 PyTorch
 #    CUDA:
@@ -47,10 +47,6 @@ conda remove -n speech_text_render --force \
     libcublas libcufft libcufile libcurand libcusolver libcusparse \
     cuda-cudart cuda-cupti cuda-libraries cuda-nvrtc cuda-nvtx \
     cuda-opencl cuda-runtime cuda-version -y 2>/dev/null || true
-
-# 6. 下载 MFA 模型
-mfa models download acoustic english_mfa
-mfa models download dictionary english_mfa
 ```
 
 ## 使用方法
@@ -99,9 +95,8 @@ print(control_text)
 speech_text_render/
 ├── core/
 │   ├── audio_aligner/          # 音频-文本对齐模块
-│   │   ├── audio_aligner.py    #   Whisper / MFA 对齐器
-│   │   ├── text_normalizer.py  #   文本归一化
-│   │   └── mfa_model/          #   中文 MFA 模型文件
+│   │   ├── audio_aligner.py    #   Qwen3 ASR / ForcedAligner 对齐器
+│   │   └── text_normalizer.py  #   文本归一化
 │   ├── feature_extractor/      # 特征提取模块
 │   │   ├── pause_extractor.py  #   停顿提取
 │   │   ├── speed_extractor.py  #   语速提取
@@ -130,6 +125,5 @@ speech_text_render/
 
 ## 已知限制
 
-- Whisper timing 模块在缺少 CUDA toolkit 时回退到较慢的 Python 实现，不影响功能
 - WSL2 下需设置 `LD_LIBRARY_PATH` 以确保 `numba`/`llvmlite` 正确加载
 - 中文字体缺失时绘图中文显示为方块，可通过 `sudo apt install fonts-wqy-zenhei` 解决

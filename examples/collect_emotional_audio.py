@@ -6,7 +6,7 @@ Source: ESD (Emotional Speech Dataset) demo samples on GitHub
   Repo: https://github.com/HLTSingapore/ESD
   License: MIT (research use)
 
-ESD utterance ID → emotion mapping (350 utterances per emotion):
+ESD utterance ID -> emotion mapping (350 utterances per emotion):
   000001-000350: Neutral
   000351-000700: Angry
   000701-001050: Happy
@@ -26,14 +26,11 @@ from pathlib import Path
 
 import requests
 
-from core.audio_aligner import WhisperAligner
+from core.audio_aligner import Qwen3ASR
 
 BASE_URL = "https://raw.githubusercontent.com/HLTSingapore/ESD/main/audio"
 
 DOWNLOADS = [
-    # NOTE: ESD repo demo IDs are counter-intuitive — speakers 0003/0007 speak
-    # Mandarin while 0013/0016 speak English (verified via Whisper language detection).
-    #
     # --- Chinese (Mandarin) emotional audio, speakers 0003 / 0007 ---
     {"file": "0003_000708.wav", "name": "zh_happy_001",     "emotion": "happy",     "lang": "zh", "speaker": "0003", "dir": "zh_emotion"},
     {"file": "0003_000358.wav", "name": "zh_angry_001",     "emotion": "angry",     "lang": "zh", "speaker": "0003", "dir": "zh_emotion"},
@@ -70,24 +67,10 @@ def download_file(url: str, save_path: Path, retries: int = 3) -> bool:
     return False
 
 
-def transcribe_with_whisper_aligner(aligner: "WhisperAligner", wav_path: str, lang: str) -> str:
-    """
-    Use the project's WhisperAligner model with explicit language.
-    Same transcribe params as WhisperAligner.align() but with language pinned.
-    """
-    import whisper as _whisper
-    audio = _whisper.load_audio(str(wav_path))
-    result = aligner.model.transcribe(
-        audio,
-        language=lang,
-        word_timestamps=True,
-        temperature=0.0,
-        condition_on_previous_text=False,
-        fp16=True if aligner.device.type == "cuda" else False,
-        hallucination_silence_threshold=0.1,
-        beam_size=10,
-    )
-    return result["text"].strip()
+def transcribe_with_qwen3(asr: Qwen3ASR, wav_path: str, lang: str) -> str:
+    """Use Qwen3ASR to transcribe audio with explicit language."""
+    text, _ = asr.transcribe(str(wav_path), language=lang)
+    return text.strip()
 
 
 def main():
@@ -95,9 +78,7 @@ def main():
     parser.add_argument("--skip-asr", action="store_true",
                         help="Skip ASR transcript generation, create placeholder .txt files instead")
     parser.add_argument("--device", default="cuda",
-                        help="Device for Whisper inference (default: cuda)")
-    parser.add_argument("--model-size", default="small",
-                        help="Whisper model size (default: small, same as SpeechTextAligner)")
+                        help="Device for ASR inference (default: cuda)")
     parser.add_argument("--force-asr", action="store_true",
                         help="Overwrite existing .txt files with new ASR results")
     args = parser.parse_args()
@@ -128,14 +109,14 @@ def main():
     # --- Phase 2: Transcripts ---
     print(f"\n[2/2] Generating transcripts ({len(downloaded)} files) ...\n")
 
-    aligner = None
+    asr = None
     if not args.skip_asr:
         try:
-            print(f"  Loading WhisperAligner (model={args.model_size}, device={args.device}) ...")
-            aligner = WhisperAligner(model_size=args.model_size, device=args.device)
-            print("  WhisperAligner ready.\n")
+            print(f"  Loading Qwen3ASR (device={args.device}) ...")
+            asr = Qwen3ASR(device=args.device)
+            print("  Qwen3ASR ready.\n")
         except Exception as e:
-            print(f"  [warn] Could not load WhisperAligner ({e})")
+            print(f"  [warn] Could not load Qwen3ASR ({e})")
             print("  Falling back to placeholder transcripts.\n")
 
     for item, wav_path in downloaded:
@@ -145,9 +126,9 @@ def main():
             continue
 
         transcript = None
-        if aligner:
+        if asr:
             try:
-                transcript = transcribe_with_whisper_aligner(aligner, wav_path, item["lang"])
+                transcript = transcribe_with_qwen3(asr, wav_path, item["lang"])
             except Exception as e:
                 print(f"  [warn] ASR error for {wav_path.name}: {e}")
 

@@ -2,21 +2,10 @@ torch
 torchvision 
 torchaudio
 librosa==0.11.0
-git+https://github.com/openai/whisper.git
-# montreal-forced-aligner: conda install -c conda-forge montreal-forced-aligner
-# mfa models download acoustic mandarin_mfa
-# mfa models download dictionary mandarin_mfa
-# mfa models download acoustic english_mfa
-# mfa models download dictionary english_mfa 
 numpy==1.23.0
-# mfa chinese normalize need:
 seaborn
-pypinyin
 # emotion speaker extractor
 funasr
-# whisper load audio
-# ffmpeg
-textgrid
 tqdm
 matplotlib
 # qwen3 asr + forced aligner

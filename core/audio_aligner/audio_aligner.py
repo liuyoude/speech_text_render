@@ -7,16 +7,11 @@ author: liuyoude
 import logging
 import os
 import re
-import subprocess
-import tempfile
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, List, Tuple
+from typing import Optional, List
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
-from textgrid import TextGrid
-from pypinyin import pinyin, Style, lazy_pinyin
-import whisper
 import torch
 import librosa
 import numpy as np
@@ -29,10 +24,6 @@ class TimeSegment:
     end: float                  # end time in seconds
     text: str                   # corresponding text (word/sentence)
     type: str = "word"          # segment type (word/sentence/paragraph)
-    # type: str = field(          # segment type (word/sentence)
-    #     default="word",
-    #     metadata={"valid_values": ["word", "sentence"]}
-    # )
 
 class BaseAligner(ABC):
     @abstractmethod
@@ -76,12 +67,9 @@ class SegmentFixer:
     
     def _calculate_frame_params(self, sr):
         """根据采样率计算合适的帧参数"""
-        # 计算目标帧长度（采样点数）
         frame_length = int(self.frame_ms * sr / 1000)
         hop_length = int(self.hop_ms * sr / 1000)
-        # 确保帧长度是2的幂（优化FFT计算）
         frame_length = 2 ** int(np.log2(frame_length) + 0.5)
-        # 确保跳步长度至少为1
         hop_length = max(1, hop_length)
         return frame_length, hop_length
     
@@ -93,26 +81,19 @@ class SegmentFixer:
         segment_energy = full_energy[start_frame:end_frame]
         
         if len(segment_energy) == 0:
-            # return np.array([])
             return time_segment
         
-        # 计算当前段的静音阈值
         local_threshold = max(
-            np.percentile(segment_energy, 10),  # 当前段的低分位值
-            silence_threshold  # 全局静音阈值
+            np.percentile(segment_energy, 10),
+            silence_threshold
         )
-        # print(f'local threshold={local_threshold:.4f}')
         
-        # 识别非静音帧
         non_silent_mask = segment_energy > local_threshold
         non_silent_indices = np.where(non_silent_mask)[0]
         
         if len(non_silent_indices) == 0:
-            # return np.array([])
             return time_segment
 
-        
-        # 找到连续的非静音区域
         start_idx = non_silent_indices[0]
         end_idx = non_silent_indices[-1]
 
@@ -121,245 +102,6 @@ class SegmentFixer:
 
         return time_segment
 
-    
-class WhisperAligner(BaseAligner):
-    """align audio and text when no text is provided"""
-    def __init__(self, model_size="medium", device="cpu", time_fix=True):
-        self.device = torch.device(device)
-        self.model = whisper.load_model(model_size, 
-                                        device=self.device,
-                                        in_memory=True).eval()
-        self.text_normalizer = TextNormalizer()
-        self.time_fix = time_fix
-        self.segment_fixer = SegmentFixer(frame_ms=20, hop_ms=10, silence_threshold=0.002)
-        if self.device.type == "cuda":
-            torch.backends.cudnn.benchmark = True
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
-    
-    def align(self, audio_path, text=None):
-        audio = whisper.load_audio(audio_path)
-        # only support 16k sample rate, 30s max length
-        if len(audio) > 16000 * 30:
-            raise AlignmentError(f"[Error] audio file: {audio_path} is too long")
-        result = self.model.transcribe(audio,
-                                       word_timestamps=True,
-                                       temperature=0.0,
-                                       condition_on_previous_text=False,
-                                       fp16=True if self.device.type == "cuda" else False,
-                                    #    initial_prompt="中文情况下的中文文字请使用简体中文",
-                                    #    logprob_threshold=-0.3,
-                                    #    no_speech_threshold=0.9,
-                                       hallucination_silence_threshold=0.1,
-                                       beam_size=10,
-                                        )
-        # print(result["text"])
-        segments = self._convert_format(result)
-        segments = self._fix_segments(audio_path, segments)
-        if text:
-            # correct Error in whisper segments using original text
-            try:
-                segments = self._correct_text_Errors(text, segments)
-            except AlignmentError as e:
-                logger.warning("Text correction error: %s", e)
-                logger.warning("Skip Error correction")
-        # word_segments, sentence_segments, paragraph_segments = [], [], []
-        # for seg in segments:
-        #     if seg.type == "word":
-        #         word_segments.append(seg)
-        #     elif seg.type == "sentence":
-        #         sentence_segments.append(seg)
-        #     elif seg.type == "paragraph":
-        #         paragraph_segments.append(seg)
-        # segments = word_segments + sentence_segments + paragraph_segments
-        return segments
-
-    def detect_language(self, audio_path):
-        audio = whisper.load_audio(audio_path)
-        audio = whisper.pad_or_trim(audio)
-        mel = whisper.log_mel_spectrogram(audio).to(self.model.device)
-        _, probs = self.model.detect_language(mel)
-        return max(probs, key=probs.get)
-
-    def _convert_format(self, whisper_result):
-        """convert whisper format to TimeSegment format"""
-        whisper_segments = whisper_result['segments']
-        segments = []
-        sentence_segments = []
-        # paragraph level segments
-        paragraph_segments = [TimeSegment(
-            start=whisper_segments[0]["start"],
-            end=whisper_segments[-1]["end"],
-            text=whisper_result["text"],
-            type="paragraph", 
-        )]
-        for seg in whisper_segments:
-            # word level segments
-            for word in seg["words"]:
-                text = word["word"].strip()
-                segments.append(TimeSegment(
-                    start=word["start"],
-                    end=word["end"],
-                    text=text,
-                    type="word",
-                ))                    
-            # sentence level segments
-            # sentence_segments.append(TimeSegment(
-            segments.append(TimeSegment(
-                start=seg["start"],
-                end=seg["end"],
-                text=seg["text"],
-                type="sentence",
-            ))
-        time_segments = segments + paragraph_segments
-        # return segments + sentence_segments + paragraph_segments
-        return time_segments 
-
-    def _fix_segments(self, audio_path: str, time_segments: List[TimeSegment]):
-        if self.time_fix:
-            self.segment_fixer.fix_segments(audio_path, time_segments)
-        # fix punctuation Error in time segments
-        segments = []
-        paragraph_segments = [time_segments[-1]]
-        for seg in time_segments:
-            if seg.type == 'word':
-                text = seg.text
-                # chinese may have multiple words in one segment
-                is_chinese = any('\u4e00' <= char <= '\u9fff' for char in text)
-                if is_chinese and len(text) > 1:
-                    duration = seg.end - seg.start
-                    char_duration = duration / len(text)
-                    for i, char in enumerate(text):
-                        if is_punctuation(char):
-                            # merge punctuation with previous word
-                            segments[-1].text += char
-                            segments[-1].end += char_duration
-                        else:
-                            segments.append(TimeSegment(
-                                start=seg.start + i*char_duration,
-                                end=seg.start + (i+1)*char_duration,
-                                text=char,
-                                type="word"
-                            ))
-                else:
-                    segments.append(seg)
-            elif seg.type == "sentence":
-                segments.append(seg)
-        time_segments = segments + paragraph_segments
-        return time_segments
-
-
-    def _correct_text_Errors(self, original_text: str, 
-                            whisper_segments: List[TimeSegment]) -> List[TimeSegment]:
-        # record original text with punctuation
-        original_words = self.text_normalizer.normalize(original_text).split()
-        # get predicted words (keep original punctuation)
-        word_segments = [seg for seg in whisper_segments if seg.type == "word"]
-        # without punctuation for dynamic programming alignment
-        predicted_words = [re.sub(r'[^\w]', '', w.text, flags=re.UNICODE).lower() for w in word_segments]
-        
-        if len(original_words) == len(predicted_words):
-            # directly replace Error in whisper segments using original text 
-            # for the case that the number of words is the same
-            word_idx = 0
-            sentence = []
-            for seg_idx, seg in enumerate(whisper_segments):
-                if seg.type == "word":
-                    text = original_words[word_idx]
-                    whisper_segments[seg_idx].text = text
-                    sentence.append(text)
-                    word_idx += 1
-                elif seg.type == "sentence":
-                    whisper_segments[seg_idx].text = self.text_normalizer.denormalize(' '.join(sentence))
-                    sentence = []
-            whisper_segments[-1].text = original_text             
-        else:
-            # dynamic programming alignment 
-            # for the case that the number of words is different
-            aligned_pairs = list(self._dynamic_align_words(original_words, predicted_words))
-            if len(aligned_pairs) == 0:
-                raise AlignmentError(f"[Error] alignment failed, original text: {original_text}, predicted text: {whisper_segments[0].text}")
-            # restruct time segments using original text with punctuation
-            word_idx = 0
-            skip_seg = 0
-            sentence = []
-            whisper_segments[-1].text = original_text
-            new_whisper_segments = []               
-            for seg in whisper_segments:
-                if seg.type == "word":
-                    if skip_seg > 0:
-                        skip_seg -= 1
-                        continue
-                    # get original word (with punctuation)
-                    orig_idx, (pred_start, pred_end) = aligned_pairs[word_idx]
-                    merged_time_segments = word_segments[pred_start:pred_end]
-                    skip_seg = pred_end - pred_start - 1
-                    # merge time segments
-                    seg.text = original_words[orig_idx]
-                    seg.start = min(ts.start for ts in merged_time_segments)
-                    seg.end = max(ts.end for ts in merged_time_segments)
-                    word_idx += 1
-                    sentence.append(seg.text)
-                    new_whisper_segments.append(seg)
-                elif seg.type == "sentence":
-                    seg.text = self.text_normalizer.denormalize(' '.join(sentence))
-                    sentence = []
-                    new_whisper_segments.append(seg)
-                elif seg.type == "paragraph":
-                    new_whisper_segments.append(seg)
-            whisper_segments = new_whisper_segments
-        return whisper_segments
-
-    def _dynamic_align_words(self, original_words: List[str], 
-                             predicted_words: List[str],
-                             max_merge: int = 5) -> List[Tuple[int, Tuple[int, int]]]:
-        """align words using dynamic programming"""
-        # preprocess: remove all punctuation in words (keep characters inside words)
-        clean_original = [re.sub(r'[^\w\u4e00-\u9fff]', '', w).lower() for w in original_words]
-        clean_predicted = [re.sub(r'[^\w\u4e00-\u9fff]', '', w).lower() for w in predicted_words]
-        len_p, len_o = len(clean_predicted), len(clean_original)
-        # initialize DP table
-        dp = [[float('inf')] * (len_p + 1) for _ in range(len_o + 1)]
-        path = [[[] for _ in range(len_p + 1)] for _ in range(len_o + 1)]
-        dp[0][0] = 0
-        # fill DP table
-        for i in range(1, len(clean_original)+1):
-            for j in range(1, len(clean_predicted)+1):
-                # single word match
-                if clean_predicted[j-1] == clean_original[i-1]:
-                    if dp[i-1][j-1] < dp[i][j]:
-                        dp[i][j] = dp[i-1][j-1]
-                        path[i][j] = path[i-1][j-1] + [(i-1, j-1, j)] 
-                    continue               
-                # adaptive merging strategy
-                # skip chinese word
-                if any('\u4e00' <= c <= '\u9fff' for c in clean_original[i-1]):
-                    continue
-                for k in range(1, min(j, max_merge)+1):
-                    merged = ''.join(clean_predicted[j-k:j])
-                    original_word = clean_original[i-1]
-                    containment_cost = 0 if merged in original_word else 1
-                    length_ratio = abs(len(merged) - len(original_word)) / len(original_word)
-                    common_chars = len(set(merged) & set(original_word))
-                    char_match_ratio = common_chars / max(len(set(merged)), len(set(original_word)), 1)
-                    cost = 0.4 * containment_cost + 0.3 * length_ratio + 0.3 * (1 - char_match_ratio)
-                    if dp[i-1][j-k] + cost < dp[i][j]:
-                        dp[i][j] = dp[i-1][j-k] + cost
-                        path[i][j] = path[i-1][j-k] + [(i-1, j-k, j)]
-
-        if len(clean_original) == 0 and len(clean_predicted) > 0:
-            return [(0, (0, len(clean_predicted)))]
-        # traceback path to get alignment results
-        alignment = []
-        i, j = len(clean_original), len(clean_predicted)
-        while i > 0 and j > 0:
-            step = path[i][j][-1]
-            orig_idx = step[0]
-            pred_start = step[1]
-            pred_end = step[2]
-            alignment.append( (orig_idx, (pred_start, pred_end)) )
-            i, j = orig_idx, pred_start       
-        return reversed(alignment)
 
 LANG_MAP = {
     "zh": "Chinese", "chinese": "Chinese",
@@ -500,185 +242,17 @@ class Qwen3ASR:
         return lang
 
 
-class MFAAligner(BaseAligner):
-    """ align audio and text using MFA """
-    def __init__(self, lang: str = "english", time_fix=True):
-        if lang == "english" or lang == "en":
-            self.lang = "english"
-            self.acoustic_model = "english_mfa"
-            self.dictionary = "english_mfa"
-        elif lang == "chinese" or lang == "zh":
-            self.lang = "chinese"
-            self.acoustic_model = 'core/audio_aligner/mfa_model/mandarin_acoustic'
-            self.dictionary = 'core/audio_aligner/mfa_model/mandarin_pinyin.dict'
-            # self.acoustic_model = 'core/audio_aligner/mfa_model/aishell3_model'
-            # self.dictionary = 'core/audio_aligner/mfa_model/simple.dict'
-        else:
-            raise ValueError(f"Unsupported language: {lang}")
-        
-        self.text_normalizer = TextNormalizer()
-        self.time_fix = time_fix
-        self.segment_fixer = SegmentFixer(frame_ms=20, hop_ms=10, silence_threshold=0.002)
-        # self._check_mfa_installed()
-    
-    def _check_mfa_installed(self):
-        try:
-            subprocess.run(["mfa", "--help"], check=True, capture_output=True)
-        except FileNotFoundError:
-            raise FileNotFoundError("[Error] MFA is not installed. Please install MFA first: conda install -c conda-forge montreal-forced-aligner.")
-
-    def align(self, audio_path: str, text: str) -> List[TimeSegment]:
-        if not os.path.exists(audio_path):
-            raise FileNotFoundError(f"[Error] audio file <{audio_path}> not found")
-        file_name = os.path.basename(audio_path).split('.')[0]
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            # Step 1: prepare input files
-            audio_path, text_path = self._prepare_inputs(tmp_dir, audio_path, text)
-            # Step 2: run MFA alignment
-            self._run_mfa_alignment(audio_path, text_path, tmp_dir)
-            # Step 3: parse TextGrid results
-            word_segments = self._parse_textgrid(os.path.join(tmp_dir, f"{file_name}.TextGrid"))
-            # Step 4: merge word segments to sentence segments
-            segments = self._merge_to_sentences(word_segments, original_text=text)
-            # Step 5: fix time segments if needed
-            if self.time_fix:
-                self.segment_fixer.fix_segments(audio_path, segments)
-            return segments
-
-    def _prepare_inputs(self, tmp_dir: str, audio_path: str, text: str) -> list[str]:
-        # resample audio to 16kHz if needed
-        # audio, sr = librosa.load(audio_path, sr=16000, mono=True)
-        # audio_path = os.path.join(tmp_dir, "audio.wav")
-        # sf.write(audio_path, audio, sr, format='WAV')
-        if self.lang == "chinese" or self.lang == "zh":
-            # For Chinese, use pinyin as the text input for MFA
-            text = self._zh_to_pinyin(text)
-        text_path = os.path.join(tmp_dir, "transcript.txt")
-        with open(text_path, 'w', encoding='utf-8') as f:
-            f.write(text)
-        return audio_path, text_path
-    
-    def _zh_to_pinyin(self, text: str) -> str:
-        """Convert Chinese text to pinyin with tone numbers"""
-        return ' '.join(
-            lazy_pinyin(
-                text,
-                style=Style.TONE3,  # use number to represent tone, e.g. zhong1
-                neutral_tone_with_five=True, # use 5 to represent neutral tone
-            )   
-        )
-
-    def _run_mfa_alignment(self, audio_path: str, text_path: str, tmp_dir: str):
-        """MFA cmd: mfa align_one --clean --overwrite audio_path text_path dictionary acoustic_model tmp_dir --beam 50"""
-        cmd = [
-            "mfa", "align_one", "--clean", "--overwrite",
-            audio_path,
-            text_path,
-            self.dictionary,
-            self.acoustic_model,
-            tmp_dir,
-            "--beam", "100"
-        ]
-        try:
-            subprocess.run(cmd, check=True, capture_output=True)
-        except subprocess.CalledProcessError as e:
-            raise AlignmentError(f"[Error] MFA align Error: {e.stderr.decode('utf-8')}")
-
-    def _parse_textgrid(self, tg_path: str) -> List[TimeSegment]:
-        if not os.path.exists(tg_path):
-            raise FileNotFoundError(f"[Error] MFA align result {tg_path} not found")
-
-        tg = TextGrid.fromFile(tg_path)
-        word_tier = next(t for t in tg.tiers if t.name == "words")
-        
-        return [
-            TimeSegment(
-                start=interval.minTime,
-                end=interval.maxTime,
-                text=interval.mark.strip(),
-                type="word"
-            )
-            for interval in word_tier.intervals if (interval.mark.strip() and interval.mark.strip() != "<eps>")
-        ]
-
-    def _merge_to_sentences(self, word_segments: List[TimeSegment], original_text: str) -> List[TimeSegment]:
-        if not word_segments:
-            return []
-        # 重建原始文本结构
-        current_sentence = []
-        original_words = self.text_normalizer.normalize(original_text).split()
-        # check word segments and original text match
-        if len(word_segments) != len(original_words):
-            raise AlignmentError("[Error] MFA align result and original text do not match")
-        # split sentences based on punctuation marks
-        segments = []
-        sentence_segments = []
-        paragraph_segments = [TimeSegment(
-            start=word_segments[0].start,
-            end=word_segments[-1].end,
-            text=original_text,
-            type="paragraph",
-        )]
-        for idx, (word_seg, orig_word) in enumerate(zip(word_segments, original_words)):
-            word_seg.text = orig_word
-            segments.append(word_seg)
-            current_sentence.append(word_seg)
-            # check end of word match original text
-            if any(c in SENTENCE_END_CHARS for c in orig_word):
-                # sentence_segments.append(self._create_sentence_segment(current_sentence))
-                segments.append(self._create_sentence_segment(current_sentence))
-                current_sentence = []
-        if current_sentence:
-            # sentence_segments.append(self._create_sentence_segment(current_sentence))
-            segments.append(self._create_sentence_segment(current_sentence))
-        # return segments + sentence_segments + paragraph_segments
-        return segments + paragraph_segments
-
-    def _create_sentence_segment(self, word_segments: List[TimeSegment]) -> TimeSegment:
-        text = ' '.join([ws.text for ws in word_segments])
-        text = self.text_normalizer.denormalize(text)
-        return TimeSegment(
-            start=word_segments[0].start,
-            end=word_segments[-1].end,
-            text=text,
-            type="sentence",
-        )
-    
 class SpeechTextAligner(BaseAligner):
-    """Unified aligner with switchable backend: 'qwen3' or 'whisper_mfa'."""
+    """Unified aligner using Qwen3 backend for ASR and forced alignment."""
 
-    def __init__(self, device="cpu", time_fix=True, aligner_backend="qwen3"):
+    def __init__(self, device="cpu", time_fix=True):
         self.device = device
         self.time_fix = time_fix
-        self.aligner_backend = aligner_backend
         self.time_segments = []
         self.lang = None
 
-        self._whisper_aligner = None
-        self._mfa_aligner_en = None
-        self._mfa_aligner_zh = None
         self._qwen3_aligner = None
         self._qwen3_asr = None
-
-    @property
-    def whisper_aligner(self):
-        if self._whisper_aligner is None:
-            self._whisper_aligner = WhisperAligner(
-                model_size="small", device=self.device, time_fix=self.time_fix,
-            )
-        return self._whisper_aligner
-
-    @property
-    def mfa_aligner_en(self):
-        if self._mfa_aligner_en is None:
-            self._mfa_aligner_en = MFAAligner(lang="english", time_fix=self.time_fix)
-        return self._mfa_aligner_en
-
-    @property
-    def mfa_aligner_zh(self):
-        if self._mfa_aligner_zh is None:
-            self._mfa_aligner_zh = MFAAligner(lang="chinese", time_fix=self.time_fix)
-        return self._mfa_aligner_zh
 
     @property
     def qwen3_aligner(self):
@@ -693,15 +267,6 @@ class SpeechTextAligner(BaseAligner):
         return self._qwen3_asr
 
     def align(self, audio_path: str, text: str = None, lang: str = None) -> List[TimeSegment]:
-        if self.aligner_backend == "qwen3":
-            self.time_segments = self._align_qwen3(audio_path, text, lang)
-        elif self.aligner_backend == "whisper_mfa":
-            self.time_segments = self._align_whisper_mfa(audio_path, text, lang)
-        else:
-            raise ValueError(f"Unknown aligner_backend: {self.aligner_backend}")
-        return self.time_segments
-
-    def _align_qwen3(self, audio_path, text, lang):
         if text is None or lang is None:
             transcribed_text, detected_lang = self.qwen3_asr.transcribe(audio_path)
             if text is None:
@@ -709,23 +274,8 @@ class SpeechTextAligner(BaseAligner):
             if lang is None:
                 lang = detected_lang
         self.lang = lang.lower()
-        return self.qwen3_aligner.align(audio_path, text, self.lang)
-
-    def _align_whisper_mfa(self, audio_path, text, lang):
-        if lang is None:
-            self.lang = self.whisper_aligner.detect_language(audio_path)
-        else:
-            self.lang = lang.lower()
-
-        if text is None:
-            return self.whisper_aligner.align(audio_path)
-
-        if self.lang in ("english", "en"):
-            return self.mfa_aligner_en.align(audio_path, text)
-        elif self.lang in ("chinese", "zh"):
-            return self.whisper_aligner.align(audio_path, text)
-        else:
-            raise ValueError(f"Unsupported language: {lang}")
+        self.time_segments = self.qwen3_aligner.align(audio_path, text, self.lang)
+        return self.time_segments
 
     def plot(self, audio_path: str, save_path: str = None):
         if len(self.time_segments) == 0:
@@ -763,15 +313,12 @@ def plot_alignment(audio_path, segments, save_path=None):
     n_fft, hop_length, n_mels = 1024, 512, 128
     S = librosa.feature.melspectrogram(y=audio, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels)
     S_db = librosa.amplitude_to_db(S, ref=np.max)
-    # 绘制对数功率谱（时间对齐）
     img = librosa.display.specshow(S_db, sr=sr, x_axis='time', 
                           y_axis='mel', ax=ax2,
                           hop_length=hop_length,
                           cmap='viridis')
-    # plt.colorbar(img, ax=ax2, format="%+2.0f dB")
     ax2.set(title='Log-Power Spectrogram')
     
-    # tag segments
     colors = {'word': 'red', 'sentence': 'blue', 'segment': 'green'}
     for seg in segments:
         if seg.type == 'word':
@@ -794,79 +341,20 @@ def plot_alignment(audio_path, segments, save_path=None):
         plt.show()
 
 if __name__ == "__main__":
-    # file_path_en = r"examples/audios/en/LJ001-0001.wav"
-    # ori_text_en = "Printing, in the only sense with which we are at present concerned, differs from most if not from all the arts and crafts represented in the Exhibition?"
-
     file_path_en = r"examples/audios/en/LJ001-0005.wav"
     ori_text_en = "the invention of movable metal letters in the middle of the fifteenth century may justly be considered as the invention of the art of printing."
 
     file_path_zh = r"examples/audios/zh/D4_750.wav"
     ori_text_zh = "苏北军的一些爱国将士，马战山、李渡、唐巨武、苏炳爱、邓铁梅等也奋起抗战。"
 
-    # file_path_zh = r"examples/audios/zh/D4_752.wav"
-    # ori_text_zh = "他们走到四马路一家茶室铺里，二九说要买鱘鱼，他给买了，又给转儿买了饼干。"
+    speech_text_aligner = SpeechTextAligner(device='cuda', time_fix=True)
 
-    # file_path_zh = r"examples/audios/zh/D4_754.wav"
-    # ori_text_zh = "由太原市南郊区寇庄村农民投资数百万元建设的平阳集贸市场，因管理等诸多方面的原因已停业一年。"
+    segments_zh = speech_text_aligner.align(file_path_zh, ori_text_zh, lang="zh")
+    for seg in segments_zh:
+        print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
+    plot_alignment(file_path_zh, segments_zh)
 
-    # file_path_zh = r"examples/audios/zh_en/zh_en_test_0001.wav"
-    # ori_text_zh = "现在是测试VCIPER的音频。它能分辨出这个分段吗？真的吗？可以吗？嗯？"
-
-    _, sr_zh = librosa.load(file_path_zh, sr=None, mono=True)
-    _, sr_en = librosa.load(file_path_en, sr=None, mono=True)
-    print(f"sr_zh: {sr_zh}, sr_en: {sr_en}")
-
-    whisper_aligner = WhisperAligner(model_size="small", device="cuda", time_fix=True)
-    # ori_text_norm = ['现', '在', '是', '测', '试', 'vciper', '的', '音', '频', '它', '能', '分', '辨', '出', '这', '个', '分', '段', '吗', '真', '的', '吗', '可', '以', '吗', '嗯']
-    # pred_text_norm = ['现', '在', '是', '测', '试', 'v', 'is', 'ible', '的', '音', '频', '它', '能', '分', '辨', '出', '这', '个', '分', '段', '吗', '真', '的', '吗', '可', '以', '吗', '嗯']
-    # for res in whisper_aligner._dynamic_align_words(ori_text_norm, pred_text_norm):
-    #     print(ori_text_norm[res[0]], pred_text_norm[res[1][0]:res[1][1]])
-
-    # no text provided, use whisper to align audio
-    # segments = whisper_aligner.align(file_path_en)
-    # for seg in segments:
-    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})") 
-    # plot_alignment(file_path_en, segments)    
-
-    segments = whisper_aligner.align(file_path_zh)
-    for seg in segments:
-        print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})") 
-    plot_alignment(file_path_zh, segments) 
-
-    # text provided for Error correction
-    # segments = whisper_aligner.align(file_path_en, text=ori_text_en)
-    # for seg in segments:
-    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
-    # plot_alignment(file_path_en, segments)
-
-    # segments = whisper_aligner.align(file_path_zh, text=ori_text_zh)
-    # for seg in segments:
-    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
-    # plot_alignment(file_path_zh, segments)
-
-    mfa_aligner_en = MFAAligner(lang="english", time_fix=True)
-    mfa_aligner_zh = MFAAligner(lang="chinese", time_fix=True)
-
-    # segments_zh = mfa_aligner_zh.align(file_path_zh, text=ori_text_zh)
-    # for seg in segments_zh:
-    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
-    # plot_alignment(file_path_zh, segments_zh)
-
-    # segments_en = mfa_aligner_en.align(file_path_en, text=ori_text_en)
-    # for seg in segments_en:
-    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
-    # plot_alignment(file_path_en, segments_en)  
-    # 
-
-
-    speech_text_aligner = SpeechTextAligner(device='cpu', time_fix=True)
-
-    # segments_zh = speech_text_aligner.align(file_path_zh, ori_text_zh)
-    # for seg in segments_zh:
-    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
-    # plot_alignment(file_path_zh, segments_zh)  
-
-    # segments_en = speech_text_aligner.align(file_path_en, ori_text_en)
-    # for seg in segments_en:
-    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
-    # plot_alignment(file_path_en, segments_en)
+    segments_en = speech_text_aligner.align(file_path_en, ori_text_en, lang="en")
+    for seg in segments_en:
+        print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
+    plot_alignment(file_path_en, segments_en)
