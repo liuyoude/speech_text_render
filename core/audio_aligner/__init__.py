@@ -1,6 +1,8 @@
 from core.audio_aligner.audio_aligner import (
     WhisperAligner,
     MFAAligner,
+    Qwen3Aligner,
+    Qwen3ASR,
     SpeechTextAligner,
     plot_alignment
 )

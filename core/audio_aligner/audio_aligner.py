@@ -361,6 +361,145 @@ class WhisperAligner(BaseAligner):
             i, j = orig_idx, pred_start       
         return reversed(alignment)
 
+LANG_MAP = {
+    "zh": "Chinese", "chinese": "Chinese",
+    "en": "English", "english": "English",
+    "yue": "Cantonese", "cantonese": "Cantonese",
+    "ja": "Japanese", "japanese": "Japanese",
+    "ko": "Korean", "korean": "Korean",
+    "fr": "French", "french": "French",
+    "de": "German", "german": "German",
+    "es": "Spanish", "spanish": "Spanish",
+    "pt": "Portuguese", "portuguese": "Portuguese",
+    "ru": "Russian", "russian": "Russian",
+    "it": "Italian", "italian": "Italian",
+}
+
+
+class Qwen3Aligner(BaseAligner):
+    """Forced alignment using Qwen3-ForcedAligner. Requires text and language."""
+
+    def __init__(self, model_name="Qwen/Qwen3-ForcedAligner-0.6B",
+                 device="cuda:0", time_fix=True):
+        from qwen_asr import Qwen3ForcedAligner
+        self.aligner = Qwen3ForcedAligner.from_pretrained(
+            model_name, dtype=torch.bfloat16, device_map=device,
+        )
+        self.text_normalizer = TextNormalizer()
+        self.time_fix = time_fix
+        self.segment_fixer = SegmentFixer(frame_ms=20, hop_ms=10, silence_threshold=0.002)
+
+    def align(self, audio_path: str, text: str = None, lang: str = "zh") -> List[TimeSegment]:
+        if text is None:
+            raise AlignmentError("Qwen3Aligner requires text for forced alignment")
+
+        qwen_lang = LANG_MAP.get(lang.lower())
+        if qwen_lang is None:
+            raise ValueError(f"Unsupported language for Qwen3 aligner: {lang}")
+
+        results = self.aligner.align(audio=audio_path, text=text, language=qwen_lang)
+        items = results[0]
+
+        original_words = self.text_normalizer.normalize(text).split()
+        segments = self._items_to_segments(items, original_words, text)
+
+        if self.time_fix:
+            self.segment_fixer.fix_segments(audio_path, segments)
+        return segments
+
+    def _items_to_segments(self, items, original_words, original_text):
+        """Convert ForcedAlignItem list to List[TimeSegment] with word/sentence/paragraph."""
+        clean_items = [it for it in items]
+        clean_orig = [re.sub(r'[^\w\u4e00-\u9fff]', '', w, flags=re.UNICODE).lower()
+                      for w in original_words]
+
+        item_idx = 0
+        word_segments = []
+        for orig_idx, orig_word in enumerate(original_words):
+            clean_word = clean_orig[orig_idx]
+            if not clean_word:
+                if word_segments:
+                    word_segments[-1].text += orig_word
+                continue
+
+            is_chinese = any('\u4e00' <= c <= '\u9fff' for c in clean_word)
+            if is_chinese:
+                n_chars = len(clean_word)
+                if item_idx + n_chars > len(clean_items):
+                    n_chars = len(clean_items) - item_idx
+                if n_chars <= 0:
+                    continue
+                start_t = clean_items[item_idx].start_time
+                end_t = clean_items[item_idx + n_chars - 1].end_time
+                item_idx += n_chars
+                word_segments.append(TimeSegment(
+                    start=start_t, end=end_t, text=orig_word, type="word",
+                ))
+            else:
+                if item_idx < len(clean_items):
+                    it = clean_items[item_idx]
+                    item_idx += 1
+                    word_segments.append(TimeSegment(
+                        start=it.start_time, end=it.end_time,
+                        text=orig_word, type="word",
+                    ))
+
+        segments = []
+        current_sentence = []
+        for ws in word_segments:
+            segments.append(ws)
+            current_sentence.append(ws)
+            if any(c in SENTENCE_END_CHARS for c in ws.text):
+                segments.append(self._create_sentence_segment(current_sentence))
+                current_sentence = []
+        if current_sentence:
+            segments.append(self._create_sentence_segment(current_sentence))
+
+        paragraph_segments = [TimeSegment(
+            start=word_segments[0].start if word_segments else 0.0,
+            end=word_segments[-1].end if word_segments else 0.0,
+            text=original_text,
+            type="paragraph",
+        )]
+        return segments + paragraph_segments
+
+    def _create_sentence_segment(self, word_segments: List[TimeSegment]) -> TimeSegment:
+        text = ' '.join([ws.text for ws in word_segments])
+        text = self.text_normalizer.denormalize(text)
+        return TimeSegment(
+            start=word_segments[0].start,
+            end=word_segments[-1].end,
+            text=text,
+            type="sentence",
+        )
+
+
+class Qwen3ASR:
+    """Wrapper around Qwen3ASRModel for transcription and language detection."""
+
+    def __init__(self, model_name="Qwen/Qwen3-ASR-0.6B", device="cuda:0"):
+        from qwen_asr import Qwen3ASRModel
+        self.model = Qwen3ASRModel.from_pretrained(
+            model_name, dtype=torch.bfloat16, device_map=device,
+            max_new_tokens=256,
+        )
+
+    def transcribe(self, audio_path: str, language: str = None):
+        """Return (text, detected_language)."""
+        qwen_lang = None
+        if language is not None:
+            qwen_lang = LANG_MAP.get(language.lower(), language)
+        results = self.model.transcribe(audio=audio_path, language=qwen_lang)
+        r = results[0]
+        lang_code = r.language.lower() if r.language else None
+        return r.text, lang_code
+
+    def detect_language(self, audio_path: str) -> str:
+        """Return ISO language code (e.g. 'zh', 'en')."""
+        _, lang = self.transcribe(audio_path)
+        return lang
+
+
 class MFAAligner(BaseAligner):
     """ align audio and text using MFA """
     def __init__(self, lang: str = "english", time_fix=True):
@@ -506,32 +645,89 @@ class MFAAligner(BaseAligner):
         )
     
 class SpeechTextAligner(BaseAligner):
-    """ align audio and text using MFA """
-    def __init__(self, device="cpu", time_fix=True):
-        self.whisper_aligner = WhisperAligner(model_size="small", device=device, time_fix=time_fix)
-        self.mfa_aligner_en = MFAAligner(lang="english", time_fix=time_fix)
-        self.mfa_aligner_zh = MFAAligner(lang="chinese", time_fix=time_fix)
+    """Unified aligner with switchable backend: 'qwen3' or 'whisper_mfa'."""
+
+    def __init__(self, device="cpu", time_fix=True, aligner_backend="qwen3"):
+        self.device = device
+        self.time_fix = time_fix
+        self.aligner_backend = aligner_backend
         self.time_segments = []
         self.lang = None
 
+        self._whisper_aligner = None
+        self._mfa_aligner_en = None
+        self._mfa_aligner_zh = None
+        self._qwen3_aligner = None
+        self._qwen3_asr = None
+
+    @property
+    def whisper_aligner(self):
+        if self._whisper_aligner is None:
+            self._whisper_aligner = WhisperAligner(
+                model_size="small", device=self.device, time_fix=self.time_fix,
+            )
+        return self._whisper_aligner
+
+    @property
+    def mfa_aligner_en(self):
+        if self._mfa_aligner_en is None:
+            self._mfa_aligner_en = MFAAligner(lang="english", time_fix=self.time_fix)
+        return self._mfa_aligner_en
+
+    @property
+    def mfa_aligner_zh(self):
+        if self._mfa_aligner_zh is None:
+            self._mfa_aligner_zh = MFAAligner(lang="chinese", time_fix=self.time_fix)
+        return self._mfa_aligner_zh
+
+    @property
+    def qwen3_aligner(self):
+        if self._qwen3_aligner is None:
+            self._qwen3_aligner = Qwen3Aligner(device=self.device, time_fix=self.time_fix)
+        return self._qwen3_aligner
+
+    @property
+    def qwen3_asr(self):
+        if self._qwen3_asr is None:
+            self._qwen3_asr = Qwen3ASR(device=self.device)
+        return self._qwen3_asr
+
     def align(self, audio_path: str, text: str = None, lang: str = None) -> List[TimeSegment]:
+        if self.aligner_backend == "qwen3":
+            self.time_segments = self._align_qwen3(audio_path, text, lang)
+        elif self.aligner_backend == "whisper_mfa":
+            self.time_segments = self._align_whisper_mfa(audio_path, text, lang)
+        else:
+            raise ValueError(f"Unknown aligner_backend: {self.aligner_backend}")
+        return self.time_segments
+
+    def _align_qwen3(self, audio_path, text, lang):
+        if text is None or lang is None:
+            transcribed_text, detected_lang = self.qwen3_asr.transcribe(audio_path)
+            if text is None:
+                text = transcribed_text
+            if lang is None:
+                lang = detected_lang
+        self.lang = lang.lower()
+        return self.qwen3_aligner.align(audio_path, text, self.lang)
+
+    def _align_whisper_mfa(self, audio_path, text, lang):
         if lang is None:
             self.lang = self.whisper_aligner.detect_language(audio_path)
         else:
             self.lang = lang.lower()
-        if text is None:
-            self.time_segments = self.whisper_aligner.align(audio_path)
-        else:
-            if self.lang == "english" or self.lang == "en":
-                self.time_segments = self.mfa_aligner_en.align(audio_path, text)
-            elif self.lang == "chinese" or self.lang == "zh":
-                # self.time_segments = self.mfa_aligner_zh.align(audio_path, text)
-                self.time_segments = self.whisper_aligner.align(audio_path, text)
-            else:
-                raise ValueError(f"Unsupported language: {lang}")
-        return self.time_segments
 
-    def plot(self, audio_path: str, save_path: str=None):
+        if text is None:
+            return self.whisper_aligner.align(audio_path)
+
+        if self.lang in ("english", "en"):
+            return self.mfa_aligner_en.align(audio_path, text)
+        elif self.lang in ("chinese", "zh"):
+            return self.whisper_aligner.align(audio_path, text)
+        else:
+            raise ValueError(f"Unsupported language: {lang}")
+
+    def plot(self, audio_path: str, save_path: str = None):
         if len(self.time_segments) == 0:
             raise ValueError("No alignment result, please align first")
         plot_alignment(audio_path, self.time_segments, save_path)

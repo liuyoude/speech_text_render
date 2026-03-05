@@ -4,3 +4,4 @@
 .cursorrules
 examples/websrcs/
 examples/.ssl/
+.cursor/

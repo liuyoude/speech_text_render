@@ -23,6 +23,7 @@ dependencies = [
     "tqdm",
     "matplotlib",
     "openai-whisper @ git+https://github.com/openai/whisper.git",
+    "qwen-asr",
 ]
 
 [project.optional-dependencies]

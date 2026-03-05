@@ -19,3 +19,5 @@ funasr
 textgrid
 tqdm
 matplotlib
+# qwen3 asr + forced aligner
+qwen-asr
