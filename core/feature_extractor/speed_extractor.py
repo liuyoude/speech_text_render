@@ -59,10 +59,9 @@ class SpeedExtractor(BaseExtractor):
         pos_location_flag = True
         word_count = 0
         for seg_idx, seg in enumerate(time_segments):
-            if seg.type == 'sentence':
+            if seg.type == 'clause':
                 pos_location_flag = True
                 duration = seg.end - seg.start
-                # word_count = len(self.text_normalizer.normalize(seg.text).split())
                 speed = word_count / duration if duration > 0 else 0
                 speed_ratio = round(speed / ref_speed, 1)
                 if self.number_control:
@@ -82,7 +81,6 @@ class SpeedExtractor(BaseExtractor):
                             "pos": pos,
                             "info": f'speed={speed:.2f}word/s',
                         })
-                # pos += word_count
                 word_count = 0
             elif seg.type == 'word':
                 word_count += 1

@@ -104,8 +104,8 @@ class EmotionExtractor(BaseExtractor):
         # sentence_segments = [seg for seg in time_segments if seg.type == 'sentence']
         start_idx = None
         for seg_idx, segment in enumerate(time_segments):
-            if segment.type == 'word':
-                if start_idx is None:
+            if segment.type in ('word', 'clause'):
+                if segment.type == 'word' and start_idx is None:
                     start_idx = seg_idx
                 continue
             elif segment.type == 'sentence':

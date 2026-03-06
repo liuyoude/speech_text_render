@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 import torch
 import librosa
 import numpy as np
-from core.audio_aligner.text_normalizer import TextNormalizer, SENTENCE_END_CHARS, is_punctuation
+from core.audio_aligner.text_normalizer import TextNormalizer, SENTENCE_END_CHARS, CLAUSE_END_CHARS, is_punctuation
 from core.utils.audio_utils import calculate_perceptual_energy
 
 @dataclass
@@ -23,7 +23,7 @@ class TimeSegment:
     start: float                # start time in seconds
     end: float                  # end time in seconds
     text: str                   # corresponding text (word/sentence)
-    type: str = "word"          # segment type (word/sentence/paragraph)
+    type: str = "word"          # segment type (word/clause/sentence)
 
 class BaseAligner(ABC):
     @abstractmethod
@@ -46,24 +46,26 @@ class SegmentFixer:
         frame_length, hop_length = self._calculate_frame_params(sr)
         full_energy = calculate_perceptual_energy(audio, sr, frame_length, hop_length)
         first_word_seg, last_word_seg = None, None
-        first_sentence_seg, last_sentence_seg = None, None
+        first_clause_word_seg, last_clause_word_seg = None, None
         for seg in time_segments:
             if seg.type == 'word':
                 seg = self._fix_word_segment(full_energy, sr, seg, hop_length, self.silence_threshold)
                 if first_word_seg is None:
                     first_word_seg = seg
                 last_word_seg = seg
+                if first_clause_word_seg is None:
+                    first_clause_word_seg = seg
+                last_clause_word_seg = seg
+            elif seg.type == "clause":
+                if first_clause_word_seg is not None:
+                    seg.start = first_clause_word_seg.start
+                    seg.end = last_clause_word_seg.end
+                first_clause_word_seg = None
             elif seg.type == "sentence":
-                seg.start = first_word_seg.start
-                seg.end = last_word_seg.end
+                if first_word_seg is not None:
+                    seg.start = first_word_seg.start
+                    seg.end = last_word_seg.end
                 first_word_seg = None
-                if first_sentence_seg is None:
-                    first_sentence_seg = seg
-                last_sentence_seg = seg
-            elif seg.type == "paragraph":
-                seg.start = first_sentence_seg.start
-                seg.end = last_sentence_seg.end
-                first_sentence_seg = None                
     
     def _calculate_frame_params(self, sr):
         """根据采样率计算合适的帧参数"""
@@ -150,7 +152,7 @@ class Qwen3Aligner(BaseAligner):
         return segments
 
     def _items_to_segments(self, items, original_words, original_text):
-        """Convert ForcedAlignItem list to List[TimeSegment] with word/sentence/paragraph."""
+        """Convert ForcedAlignItem list to List[TimeSegment] with word/clause/sentence."""
         clean_items = [it for it in items]
         clean_orig = [re.sub(r'[^\w\u4e00-\u9fff]', '', w, flags=re.UNICODE).lower()
                       for w in original_words]
@@ -187,32 +189,39 @@ class Qwen3Aligner(BaseAligner):
                     ))
 
         segments = []
+        current_clause = []
         current_sentence = []
         for ws in word_segments:
             segments.append(ws)
+            current_clause.append(ws)
             current_sentence.append(ws)
-            if any(c in SENTENCE_END_CHARS for c in ws.text):
-                segments.append(self._create_sentence_segment(current_sentence))
+
+            has_clause_end = any(c in CLAUSE_END_CHARS for c in ws.text)
+            has_sentence_end = any(c in SENTENCE_END_CHARS for c in ws.text)
+
+            if has_clause_end and current_clause:
+                segments.append(self._create_group_segment(current_clause, "clause"))
+                current_clause = []
+
+            if has_sentence_end and current_sentence:
+                segments.append(self._create_group_segment(current_sentence, "sentence"))
                 current_sentence = []
+
+        if current_clause:
+            segments.append(self._create_group_segment(current_clause, "clause"))
         if current_sentence:
-            segments.append(self._create_sentence_segment(current_sentence))
+            segments.append(self._create_group_segment(current_sentence, "sentence"))
 
-        paragraph_segments = [TimeSegment(
-            start=word_segments[0].start if word_segments else 0.0,
-            end=word_segments[-1].end if word_segments else 0.0,
-            text=original_text,
-            type="paragraph",
-        )]
-        return segments + paragraph_segments
+        return segments
 
-    def _create_sentence_segment(self, word_segments: List[TimeSegment]) -> TimeSegment:
+    def _create_group_segment(self, word_segments: List[TimeSegment], seg_type: str) -> TimeSegment:
         text = ' '.join([ws.text for ws in word_segments])
         text = self.text_normalizer.denormalize(text)
         return TimeSegment(
             start=word_segments[0].start,
             end=word_segments[-1].end,
             text=text,
-            type="sentence",
+            type=seg_type,
         )
 
 
@@ -319,13 +328,18 @@ def plot_alignment(audio_path, segments, save_path=None):
                           cmap='viridis')
     ax2.set(title='Log-Power Spectrogram')
     
-    colors = {'word': 'red', 'sentence': 'blue', 'segment': 'green'}
+    colors = {'word': 'red', 'clause': 'green', 'sentence': 'blue'}
     for seg in segments:
         if seg.type == 'word':
             ax1.axvspan(seg.start, seg.end, alpha=0.2, color=colors['word'])
             ax2.axvspan(seg.start, seg.end, alpha=0.1, color='white')
             ax1.text(seg.start, 0, seg.text, rotation=45)
             ax2.text(seg.start, 4096, seg.text, rotation=45, color='white')
+        elif seg.type == 'clause':
+            ax1.axvline(seg.start, color=colors['clause'], linestyle=':')
+            ax1.axvline(seg.end, color=colors['clause'], linestyle=':')
+            ax2.axvline(seg.start, color=colors['clause'], linestyle=':')
+            ax2.axvline(seg.end, color=colors['clause'], linestyle=':')
         elif seg.type == 'sentence':
             ax1.axvline(seg.start, color=colors['sentence'], linestyle='--')
             ax1.axvline(seg.end, color=colors['sentence'], linestyle='--')

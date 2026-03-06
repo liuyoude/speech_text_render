@@ -148,12 +148,12 @@ FILE_MAP = _scan_audio_files()
 # Analysis pipeline
 # ---------------------------------------------------------------------------
 
-def _is_sentence_start(pos, segments):
-    """Check if pos is the first word of a sentence."""
+def _is_clause_start(pos, segments):
+    """Check if pos is the first word of a clause."""
     if pos == 0:
         return True
     for i in range(pos - 1, -1, -1):
-        if segments[i].type == "sentence" or segments[i].type == "paragraph":
+        if segments[i].type in ("clause", "sentence"):
             return True
         if segments[i].type == "word":
             return False
@@ -217,13 +217,21 @@ def _analyze(audio_path: str, text: str, extractor_names: List[str]) -> dict:
                     break
             t_start = prev_end
             t_end = float(segments_snapshot[pos].start)
-        elif ctype in ("speed", "emotion") or (
-            ctype == "volume" and _is_sentence_start(pos, segments_snapshot)
-        ):
+        elif ctype == "emotion":
             t_start = float(segments_snapshot[pos].start)
             t_end = t_start
             for i in range(pos, len(segments_snapshot)):
                 if segments_snapshot[i].type == "sentence":
+                    t_start = float(segments_snapshot[i].start)
+                    t_end = float(segments_snapshot[i].end)
+                    break
+        elif ctype == "speed" or (
+            ctype == "volume" and _is_clause_start(pos, segments_snapshot)
+        ):
+            t_start = float(segments_snapshot[pos].start)
+            t_end = t_start
+            for i in range(pos, len(segments_snapshot)):
+                if segments_snapshot[i].type == "clause":
                     t_start = float(segments_snapshot[i].start)
                     t_end = float(segments_snapshot[i].end)
                     break
@@ -262,7 +270,7 @@ def _analyze(audio_path: str, text: str, extractor_names: List[str]) -> dict:
 # ---------------------------------------------------------------------------
 
 def _plot_combined(audio_path, segments, control_details, controls,
-                   show_word, show_sentence, show_paragraph,
+                   show_word, show_clause, show_sentence,
                    active_ctrl_types, save_path=None):
     audio, sr = librosa.load(audio_path, sr=None, mono=True)
     duration = len(audio) / sr
@@ -344,12 +352,12 @@ def _plot_combined(audio_path, segments, control_details, controls,
     for seg in segments:
         if seg["type"] == "word" and show_word:
             ax_wave.axvspan(seg["start"], seg["end"], alpha=0.15, color="red")
+        elif seg["type"] == "clause" and show_clause:
+            ax_wave.axvline(seg["start"], color="green", linestyle=":", linewidth=0.8)
+            ax_wave.axvline(seg["end"], color="green", linestyle=":", linewidth=0.8)
         elif seg["type"] == "sentence" and show_sentence:
             ax_wave.axvline(seg["start"], color="blue", linestyle="--", linewidth=0.8)
             ax_wave.axvline(seg["end"], color="blue", linestyle="--", linewidth=0.8)
-        elif seg["type"] == "paragraph" and show_paragraph:
-            ax_wave.axvline(seg["start"], color="green", linestyle="-.", linewidth=0.8)
-            ax_wave.axvline(seg["end"], color="green", linestyle="-.", linewidth=0.8)
 
     ax_wave.set_title("Waveform", fontsize=10, loc="left")
 
@@ -368,12 +376,12 @@ def _plot_combined(audio_path, segments, control_details, controls,
     for seg in segments:
         if seg["type"] == "word" and show_word:
             ax_spec.axvspan(seg["start"], seg["end"], alpha=0.1, color="white")
+        elif seg["type"] == "clause" and show_clause:
+            ax_spec.axvline(seg["start"], color="green", linestyle=":", linewidth=0.8)
+            ax_spec.axvline(seg["end"], color="green", linestyle=":", linewidth=0.8)
         elif seg["type"] == "sentence" and show_sentence:
             ax_spec.axvline(seg["start"], color="blue", linestyle="--", linewidth=0.8)
             ax_spec.axvline(seg["end"], color="blue", linestyle="--", linewidth=0.8)
-        elif seg["type"] == "paragraph" and show_paragraph:
-            ax_spec.axvline(seg["start"], color="green", linestyle="-.", linewidth=0.8)
-            ax_spec.axvline(seg["end"], color="green", linestyle="-.", linewidth=0.8)
 
     ax_spec.set_title("Mel Spectrogram", fontsize=10, loc="left")
     if not has_ctrl:
@@ -536,7 +544,7 @@ def analyze_and_plot(audio_path, text, *args):
 
     ext_names = list(EXTRACTOR_CLASSES.keys())
     ext_flags = args[:len(ext_names)]
-    show_word, show_sentence, show_paragraph = args[len(ext_names):]
+    show_word, show_clause, show_sentence = args[len(ext_names):]
 
     extractors = [n for n, flag in zip(ext_names, ext_flags) if flag]
 
@@ -562,7 +570,7 @@ def analyze_and_plot(audio_path, text, *args):
 
     _plot_combined(
         audio_path, segments, details, controls,
-        show_word, show_sentence, show_paragraph, active_ctrl_types,
+        show_word, show_clause, show_sentence, active_ctrl_types,
         save_path=png_path,
     )
 
@@ -649,7 +657,7 @@ def build_app():
                 gr.Markdown("**显示选项**")
                 chk_word = gr.Checkbox(label="Word 段", value=True)
                 chk_sentence = gr.Checkbox(label="Sentence 段", value=True)
-                chk_paragraph = gr.Checkbox(label="Paragraph 段", value=False)
+                chk_clause = gr.Checkbox(label="Clause 分句", value=True)
 
                 btn = gr.Button("分析 Analyze", variant="primary")
 
@@ -666,7 +674,7 @@ def build_app():
         # --- Event bindings ---
         _analyze_inputs = ([audio_state, text_box]
                            + list(ext_checks.values())
-                           + [chk_word, chk_sentence, chk_paragraph])
+                           + [chk_word, chk_clause, chk_sentence])
         _analyze_outputs = [audio_out, plot_combined, hl_text, df_out]
 
         file_dd.change(

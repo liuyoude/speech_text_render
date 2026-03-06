@@ -77,63 +77,48 @@ class VolumeExtractor(BaseExtractor):
         # 计算全局平均音量作为基准
         # global_avg_vol = np.mean(rms)
         
-        # 按句子分组处理
-        sentence_rmss = []
-        sentence_groups = self._group_by_sentence(time_segments)
-        for sentence_idx, (sentence_seg, word_segments) in enumerate(sentence_groups):
-            sentence_rms = self._get_segment_rms(rms, sr, hop_length, sentence_seg.start, sentence_seg.end)
-            sentence_rmss.append(sentence_rms)
-        global_avg_vol = np.mean(np.concatenate(sentence_rmss))
-        seg_idx = 0
-        for sentence_idx, (sentence_seg, word_segments) in enumerate(sentence_groups):
-            if sentence_seg.end - sentence_seg.start < self.sentence_duration_threshold:
-                seg_idx += len(word_segments) + 1
+        clause_groups = self._group_by_clause(time_segments)
+        clause_rmss = []
+        for clause_seg, word_indices in clause_groups:
+            clause_rms = self._get_segment_rms(rms, sr, hop_length, clause_seg.start, clause_seg.end)
+            clause_rmss.append(clause_rms)
+        global_avg_vol = np.mean(np.concatenate(clause_rmss))
+
+        for group_idx, (clause_seg, word_indices) in enumerate(clause_groups):
+            if clause_seg.end - clause_seg.start < self.sentence_duration_threshold:
                 continue
-            # 计算句子平均音量
-            # sentence_rms = self._get_segment_rms(rms, sr, hop_length, sentence_seg.start, sentence_seg.end)
-            sentence_rms = sentence_rmss[sentence_idx]
-            sentence_avg_vol = np.mean(sentence_rms) if len(sentence_rms) > 0 else global_avg_vol
-            
-            # 确定句子级别音量类型
-            sentence_vol_ratio = sentence_avg_vol / global_avg_vol
-            sentence_vol_type = self._get_volume_level(sentence_vol_ratio, self.sentence_volume_levels)
-            
-            # 添加句子级别控制符（如果明显不同于正常）
-            # if abs(sentence_vol_ratio - 1.0) > self.sentence_threshold:
-            if sentence_vol_type != 'normal':
+            clause_rms = clause_rmss[group_idx]
+            clause_avg_vol = np.mean(clause_rms) if len(clause_rms) > 0 else global_avg_vol
+
+            clause_vol_ratio = clause_avg_vol / global_avg_vol
+            clause_vol_type = self._get_volume_level(clause_vol_ratio, self.sentence_volume_levels)
+
+            first_word_idx = word_indices[0] if word_indices else None
+            if clause_vol_type != 'normal' and first_word_idx is not None:
                 volume_controls.append({
                     "type": self.type,
-                    "value": round(sentence_vol_ratio, 2) if self.number_control else sentence_vol_type,
-                    "pos": seg_idx,
-                    "info": f"[{sentence_seg.text}]relative volume ratio={sentence_vol_ratio:.2f}",
+                    "value": round(clause_vol_ratio, 2) if self.number_control else clause_vol_type,
+                    "pos": first_word_idx,
+                    "info": f"[{clause_seg.text}]relative volume ratio={clause_vol_ratio:.2f}",
                 })
 
-            # 处理句子内的单词级别音量
-            for word_seg in word_segments:
+            for wi in word_indices:
+                word_seg = time_segments[wi]
                 if word_seg.end - word_seg.start < self.word_duration_threshold:
-                    seg_idx += 1
                     continue
-                # 计算单词级别音量
-                word_rms = self._get_segment_rms(rms, sr, hop_length,word_seg.start, word_seg.end)
-                word_avg_vol = np.mean(word_rms) if len(word_rms) > 0 else sentence_avg_vol
+                word_rms = self._get_segment_rms(rms, sr, hop_length, word_seg.start, word_seg.end)
+                word_avg_vol = np.mean(word_rms) if len(word_rms) > 0 else clause_avg_vol
 
-                # 计算相对于句子平均音量的比例
-                word_vol_ratio = word_avg_vol / sentence_avg_vol
-                # word_vol_ratio = word_avg_vol / global_avg_vol
+                word_vol_ratio = word_avg_vol / clause_avg_vol
                 word_vol_type = self._get_volume_level(word_vol_ratio, self.word_volume_levels)
-                
-                # 仅当音量明显变化时才添加控制符
-                # if abs(word_vol_ratio - 1.0) > self.word_threshold:
+
                 if word_vol_type != 'normal':
                     volume_controls.append({
                         "type": self.type,
                         "value": round(word_vol_ratio, 2) if self.number_control else word_vol_type,
-                        "pos": seg_idx,
+                        "pos": wi,
                         "info": f"[{word_seg.text}] duration={(word_seg.end-word_seg.start):.3f}s, relative volume ratio={word_vol_ratio:.2f}",
                     })
-                seg_idx += 1
-            # skip sentence after the last word
-            seg_idx += 1
         
         return volume_controls
     
@@ -162,7 +147,7 @@ class VolumeExtractor(BaseExtractor):
         plt.legend()
         
         # 标注时间分段
-        colors = {'sentence': 'blue', 'word': 'red'}
+        colors = {'clause': 'green', 'sentence': 'blue', 'word': 'red'}
         for seg in time_segments:
             alpha = 0.2 if seg.type == 'sentence' else 0.1
             # 在波形图上标注
@@ -210,19 +195,19 @@ class VolumeExtractor(BaseExtractor):
                 return level
         return list(volume_levels.keys())[-1]  # 默认返回最高级别
     
-    def _group_by_sentence(self, segments):
-        """将时间分段按句子分组"""
-        sentences = []
-        current_words = []
+    def _group_by_clause(self, segments):
+        """将时间分段按 clause 分组，返回 (clause_seg, [word_indices])"""
+        clauses = []
+        current_word_indices = []
         
-        for seg in segments:
+        for idx, seg in enumerate(segments):
             if seg.type == 'word':
-                current_words.append(seg)
-            elif seg.type == 'sentence':
-                sentences.append((seg, current_words))
-                current_words = []
+                current_word_indices.append(idx)
+            elif seg.type == 'clause':
+                clauses.append((seg, current_word_indices))
+                current_word_indices = []
 
-        return sentences
+        return clauses
     
     def _calculate_frame_params(self, sr):
         """根据采样率计算合适的帧参数"""
