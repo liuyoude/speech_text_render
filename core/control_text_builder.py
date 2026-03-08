@@ -6,12 +6,28 @@ author: liuyoude
 """
 import logging
 import os
-from typing import Dict, Optional, List, Tuple, Union
+from collections import defaultdict
+from typing import Dict, List, Union
+
 from core.feature_extractor.base_extractor import BaseExtractor, TimeSegment
 
 logger = logging.getLogger(__name__)
 from core.audio_aligner.audio_aligner import SpeechTextAligner, plot_alignment
-from core.feature_extractor import PauseExtractor, SpeedExtractor, VolumeExtractor, EmotionExtractor
+from core.feature_extractor import (
+    PauseExtractor, SpeedExtractor, VolumeExtractor, EmotionExtractor,
+    PitchExtractor, EmphasisExtractor, StyleExtractor,
+)
+
+_CONTROL_PRIORITY = {
+    "style": 0,
+    "emotion": 1,
+    "speed": 2,
+    "volume": 3,
+    "pitch": 4,
+    "break": 5,
+    "emphasis": 6,
+}
+
 
 def get_audio_text_path_list(root_dir):
     ext = '.wav'
@@ -24,10 +40,12 @@ def get_audio_text_path_list(root_dir):
                 text_path_list.append(os.path.join(root, file.replace(ext, '.txt')))
     return audio_path_list, text_path_list
 
+
 class ControlGenerator:
     def __init__(self, config):
         self.config = config
         self.extractors = {}
+        self.max_controls_per_clause = config.get("max_controls_per_clause", None)
 
     def add_extractor(self, extractor: Union[BaseExtractor, List[BaseExtractor]]):
         """add feature extractor"""
@@ -37,24 +55,92 @@ class ControlGenerator:
         else:
             self.extractors[extractor.type] = extractor
 
-    def generate(self, audio_path: str, time_segments: List[TimeSegment], lang: str=None) -> Dict[int, str]:
-        """
-        generate control flag and text
-        """
-        controls = {}
-        for extractor in self.extractors.values():
-            extracts = extractor.extract(audio_path, time_segments, lang=lang)
-            for extract in extracts:
-                logger.debug(f'type: {extract["type"]}=={extract["value"]}, info: {extract["info"]}')
-                if extract['pos'] not in controls:
-                    controls[extract['pos']] = []
-                controls[extract['pos']].append(f'{extract["type"]}={extract["value"]}')
+    # ------------------------------------------------------------------
+    # public API
+    # ------------------------------------------------------------------
 
-        result = {}
-        for pos, items in controls.items():
-            result[pos] = f'[{",".join(items)}]'
+    def generate(self, audio_path: str, time_segments: List[TimeSegment],
+                 lang: str = None) -> Dict[int, str]:
+        """Return formatted controls: ``{pos: "[type=val][type=val]..."}``."""
+        raw = self._extract_all(audio_path, time_segments, lang)
+        raw = self._apply_density_limit(raw, time_segments)
+        return self._format_controls(raw)
+
+    def extract_raw(self, audio_path: str, time_segments: List[TimeSegment],
+                    lang: str = None) -> List[Dict]:
+        """Return raw control dicts after density limiting."""
+        raw = self._extract_all(audio_path, time_segments, lang)
+        return self._apply_density_limit(raw, time_segments)
+
+    # ------------------------------------------------------------------
+    # internal helpers
+    # ------------------------------------------------------------------
+
+    def _extract_all(self, audio_path: str, time_segments: List[TimeSegment],
+                     lang: str = None) -> List[Dict]:
+        """Collect raw control dicts from every registered extractor."""
+        all_controls: List[Dict] = []
+        shared_ctx: Dict = {}
+        for extractor in self.extractors.values():
+            extractor._shared_context = shared_ctx
+            extracts = extractor.extract(audio_path, time_segments, lang=lang)
+            for ctrl in extracts:
+                logger.debug("type: %s==%s, info: %s",
+                             ctrl["type"], ctrl["value"], ctrl["info"])
+            all_controls.extend(extracts)
+        return all_controls
+
+    def _apply_density_limit(self, controls: List[Dict],
+                             time_segments: List[TimeSegment]) -> List[Dict]:
+        if self.max_controls_per_clause is None or not controls:
+            return controls
+        word_to_clause = self._build_word_to_clause_map(time_segments)
+        clause_buckets: Dict[int, List[Dict]] = defaultdict(list)
+        for ctrl in controls:
+            clause_id = word_to_clause.get(ctrl["pos"], -1)
+            clause_buckets[clause_id].append(ctrl)
+        kept: List[Dict] = []
+        for ctrls in clause_buckets.values():
+            ctrls.sort(key=lambda c: _CONTROL_PRIORITY.get(c["type"], 99))
+            kept.extend(ctrls[:self.max_controls_per_clause])
+        return kept
+
+    @staticmethod
+    def _format_controls(controls: List[Dict]) -> Dict[int, str]:
+        """Group by pos, sort by priority, render each as ``[type=value]``."""
+        by_pos: Dict[int, List[Dict]] = defaultdict(list)
+        for ctrl in controls:
+            by_pos[ctrl["pos"]].append(ctrl)
+        result: Dict[int, str] = {}
+        for pos, ctrls in by_pos.items():
+            ctrls.sort(key=lambda c: _CONTROL_PRIORITY.get(c["type"], 99))
+            result[pos] = "".join(_format_single_control(c) for c in ctrls)
         return result
-    
+
+    @staticmethod
+    def _build_word_to_clause_map(time_segments: List[TimeSegment]) -> Dict[int, int]:
+        mapping: Dict[int, int] = {}
+        clause_id = 0
+        for idx, seg in enumerate(time_segments):
+            if seg.type == "word":
+                mapping[idx] = clause_id
+            elif seg.type == "clause":
+                clause_id += 1
+        return mapping
+
+
+def _format_single_control(ctrl: Dict) -> str:
+    """Render one control dict as a bracketed tag.
+
+    - Normal:   ``[type=value]``
+    - Emphasis label mode: ``[emphasis]``  (type equals value)
+    """
+    ctype, value = ctrl["type"], ctrl["value"]
+    if ctype == "emphasis" and value == "emphasis":
+        return "[emphasis]"
+    return f"[{ctype}={value}]"
+
+
 class ControlBuilder:
     def __init__(self, config):
         self.config = config
@@ -62,71 +148,76 @@ class ControlBuilder:
         self.aligner = SpeechTextAligner(device=device)
         self.control_generator = ControlGenerator(config)
 
-    def build(self, audio_path: str, text: str, lang: str=None) -> str:
-        """
-        generate text with control
-        """
+    def build(self, audio_path: str, text: str, lang: str = None) -> str:
+        """Generate text with control tags inserted at target positions."""
         self.audio_path = audio_path
         self.time_segments = self.aligner.align(audio_path, text, lang=lang)
-        controls = self.control_generator.generate(audio_path, self.time_segments, lang=self.aligner.lang)
-        for seg_idx, control in zip(controls.keys(), controls.values()):
+        controls = self.control_generator.generate(
+            audio_path, self.time_segments, lang=self.aligner.lang,
+        )
+        for seg_idx, control in controls.items():
             self.time_segments[seg_idx].text = control + self.time_segments[seg_idx].text
-        control_text = ' '.join([seg.text for seg in self.time_segments if seg.type == 'word'])
+        control_text = ' '.join(
+            seg.text for seg in self.time_segments if seg.type == 'word'
+        )
         return control_text
-    
+
     def add_extractor(self, extractor: Union[BaseExtractor, List[BaseExtractor]]) -> None:
         self.control_generator.add_extractor(extractor)
 
     def plot(self, save_path: str = None) -> None:
         plot_alignment(self.audio_path, self.time_segments, save_path)
 
-    def test(self, audio_path: str, text: str, lang: str=None, plot: bool=False) -> None:
+    def test(self, audio_path: str, text: str, lang: str = None, plot: bool = False) -> None:
         control_text = self.build(audio_path, text)
         logger.info(control_text)
         if plot:
-            self.plot()        
-        
-    
+            self.plot()
+
+
 if __name__ == "__main__":
-    config = {
-        "pause_extractor": {
-            "number_control": False,
-        },
-        "speed_extractor": {
-            "number_control": True,
-        },
-        "volume_extractor": {
-            "number_control": False,
-        },
-        "emotion_extractor": {
-            "sentence_level": True,
-            "number_control": False,
-            "device": "cuda",
-            'multi_emotion': True,
-        },
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run control text pipeline")
+    parser.add_argument("--number", action="store_true",
+                        help="Use z-score continuous values (training mode)")
+    parser.add_argument("--max-per-clause", type=int, default=None,
+                        help="Max control annotations per clause")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO)
+
+    number_control = args.number
+    extractor_cfgs = {
+        "pause": {"number_control": number_control},
+        "speed": {"number_control": number_control},
+        "volume": {"number_control": number_control},
+        "pitch": {"device": "cuda", "number_control": number_control},
+        "emphasis": {"device": "cuda", "number_control": number_control},
+        "emotion": {"device": "cuda"},
+        "style": {"style": "read"},
     }
+    config = dict(extractor_cfgs)
+    if args.max_per_clause is not None:
+        config["max_controls_per_clause"] = args.max_per_clause
+
     builder = ControlBuilder(config)
     extractors = [
-        # PauseExtractor(config['pause_extractor']),
-        # SpeedExtractor(config['speed_extractor']),
-        VolumeExtractor(config['volume_extractor']),
-        EmotionExtractor(config['emotion_extractor']),
+        StyleExtractor(extractor_cfgs["style"]),
+        PauseExtractor(extractor_cfgs["pause"]),
+        SpeedExtractor(extractor_cfgs["speed"]),
+        VolumeExtractor(extractor_cfgs["volume"]),
+        PitchExtractor(extractor_cfgs["pitch"]),
+        EmphasisExtractor(extractor_cfgs["emphasis"]),
+        EmotionExtractor(extractor_cfgs["emotion"]),
     ]
     builder.add_extractor(extractors)
 
+    mode = "number (training)" if number_control else "label (inference)"
+    logger.info("Mode: %s, max_controls_per_clause: %s", mode, args.max_per_clause)
+
     audio_path_list, text_path_list = get_audio_text_path_list(r"examples/audios")
     for audio_path, text_path in zip(audio_path_list, text_path_list):
-        with open(text_path, 'r', encoding='utf-8') as f:
-            ori_text_en = f.read()
-        builder.test(audio_path, ori_text_en, plot=False)
-
-
-    # file_path_en = r"examples/audios/en/LJ001-0001.wav"
-    # ori_text_en = "Printing, in the only sense with which we are at present concerned, differs from most if not from all the arts and crafts represented in the Exhibition?"
-    # file_path_zh = "examples/audios/zh/D4_752.wav"
-    # ori_text_zh = "他们走到四马路一家茶室铺里，二九说要买鱘鱼，他给买了，又给转儿买了饼干。"
-    # builder.test(file_path_en, ori_text_en)
-    # # builder.test(file_path_zh, ori_text_zh)
-    # for seg in builder.time_segments:
-    #     print(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text} (type: {seg.type})")
-    # builder.plot(save_path=False)
+        with open(text_path, "r", encoding="utf-8") as f:
+            text = f.read()
+        builder.test(audio_path, text, plot=False)

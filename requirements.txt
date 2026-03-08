@@ -10,3 +10,9 @@ tqdm
 matplotlib
 # qwen3 asr + forced aligner
 qwen-asr
+# f0 pitch extraction
+torchfcpe
+# config parsing
+pyyaml
+# LUFS loudness normalization
+pyloudnorm

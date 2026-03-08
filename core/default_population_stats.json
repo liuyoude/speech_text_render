@@ -1,0 +1,35 @@
+{
+  "_comment": "Calibrated from examples/audios/ (small sample). Will be replaced by large-scale calibration in Stage 3.",
+  "zh_read": {
+    "speed":         {"n": 13,  "mean": 4.88,   "std": 0.45},
+    "energy":        {"n": 13,  "mean": 0.031,  "std": 0.016},
+    "loudness_lufs": {"n": 13,  "mean": -18.3,  "std": 3.6},
+    "duration":      {"n": 13,  "mean": 2.93,   "std": 2.37},
+    "word_duration": {"n": 155, "mean": 0.195,  "std": 0.072},
+    "word_energy":   {"n": 155, "mean": 0.031,  "std": 0.025}
+  },
+  "en_read": {
+    "speed":         {"n": 9,  "mean": 2.88,   "std": 0.58},
+    "energy":        {"n": 9,  "mean": 0.020,  "std": 0.003},
+    "loudness_lufs": {"n": 9,  "mean": -20.3,  "std": 1.1},
+    "duration":      {"n": 9,  "mean": 3.58,   "std": 2.77},
+    "word_duration": {"n": 88, "mean": 0.318,  "std": 0.214},
+    "word_energy":   {"n": 88, "mean": 0.021,  "std": 0.012}
+  },
+  "zh_emotion": {
+    "speed":         {"n": 5,  "mean": 5.73,   "std": 0.96},
+    "energy":        {"n": 5,  "mean": 0.020,  "std": 0.011},
+    "loudness_lufs": {"n": 5,  "mean": -23.8,  "std": 5.2},
+    "duration":      {"n": 5,  "mean": 2.91,   "std": 0.91},
+    "word_duration": {"n": 74, "mean": 0.162,  "std": 0.073},
+    "word_energy":   {"n": 74, "mean": 0.020,  "std": 0.015}
+  },
+  "en_emotion": {
+    "speed":         {"n": 7,  "mean": 3.72,   "std": 0.74},
+    "energy":        {"n": 7,  "mean": 0.010,  "std": 0.003},
+    "loudness_lufs": {"n": 7,  "mean": -27.9,  "std": 3.3},
+    "duration":      {"n": 7,  "mean": 1.16,   "std": 0.36},
+    "word_duration": {"n": 29, "mean": 0.244,  "std": 0.178},
+    "word_energy":   {"n": 29, "mean": 0.011,  "std": 0.008}
+  }
+}

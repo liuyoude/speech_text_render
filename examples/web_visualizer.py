@@ -67,12 +67,9 @@ _COLOR_PALETTE = ["#ff9800", "#4caf50", "#ab47bc", "#ec407a",
 
 _KNOWN_DEFAULTS: Dict[str, dict] = {
     "pause": {"number_control": False},
-    "speed": {"number_control": True},
-    "volume": {"number_control": False},
-    "emotion": {
-        "sentence_level": True, "number_control": False,
-        "device": "cuda", "multi_emotion": True,
-    },
+    "speed": {},
+    "volume": {},
+    "emotion": {"device": "cuda"},
 }
 
 
@@ -148,18 +145,6 @@ FILE_MAP = _scan_audio_files()
 # Analysis pipeline
 # ---------------------------------------------------------------------------
 
-def _is_clause_start(pos, segments):
-    """Check if pos is the first word of a clause."""
-    if pos == 0:
-        return True
-    for i in range(pos - 1, -1, -1):
-        if segments[i].type in ("clause", "sentence"):
-            return True
-        if segments[i].type == "word":
-            return False
-    return True
-
-
 def _analyze(audio_path: str, text: str, extractor_names: List[str]) -> dict:
     if not text or not text.strip():
         text = None
@@ -185,18 +170,8 @@ def _analyze(audio_path: str, text: str, extractor_names: List[str]) -> dict:
             exts.append(cls(cfg[f"{name}_extractor"]))
     gen.add_extractor(exts)
 
-    controls_raw: List[dict] = []
-    for ext in gen.extractors.values():
-        controls_raw.extend(ext.extract(audio_path, segments_snapshot, lang=a.lang))
-
-    controls_merged: Dict[int, str] = {}
-    for c in controls_raw:
-        tag = f'[{c["type"]}={c["value"]}]'
-        pos = c["pos"]
-        controls_merged[pos] = controls_merged.get(pos, "") + tag
-    for pos in controls_merged:
-        parts = controls_merged[pos][1:-1].replace("][", ",")
-        controls_merged[pos] = f"[{parts}]"
+    controls_raw = gen.extract_raw(audio_path, segments_snapshot, lang=a.lang)
+    controls_merged = ControlGenerator._format_controls(controls_raw)
 
     segs_list = [
         {"start": float(s.start), "end": float(s.end), "text": s.text, "type": s.type}
@@ -225,9 +200,7 @@ def _analyze(audio_path: str, text: str, extractor_names: List[str]) -> dict:
                     t_start = float(segments_snapshot[i].start)
                     t_end = float(segments_snapshot[i].end)
                     break
-        elif ctype == "speed" or (
-            ctype == "volume" and _is_clause_start(pos, segments_snapshot)
-        ):
+        elif ctype in ("speed", "volume", "pitch"):
             t_start = float(segments_snapshot[pos].start)
             t_end = t_start
             for i in range(pos, len(segments_snapshot)):

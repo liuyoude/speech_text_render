@@ -1,0 +1,38 @@
+# Dataset configuration for PopulationCalibrator
+# Each entry specifies a directory of .wav + .txt file pairs.
+# The calibrator scans all .wav files under `path`, loading the
+# matching text file (same stem + text_ext) for forced alignment.
+#
+# Fields:
+#   name       — human-readable identifier (used in logs)
+#   path       — directory containing audio files
+#   lang       — language code (zh / en)
+#   style      — speaking style tag (read / emotion / ...)
+#   text_ext   — extension of text transcript files (default: .txt)
+#
+# The calibrator groups statistics by "{lang}_{style}".
+
+datasets:
+  - name: "zh_read"
+    path: "examples/audios/zh"
+    lang: "zh"
+    style: "read"
+    text_ext: ".txt"
+
+  - name: "en_read"
+    path: "examples/audios/en"
+    lang: "en"
+    style: "read"
+    text_ext: ".txt"
+
+  - name: "zh_emotion"
+    path: "examples/audios/zh_emotion"
+    lang: "zh"
+    style: "emotion"
+    text_ext: ".txt"
+
+  - name: "en_emotion"
+    path: "examples/audios/en_emotion"
+    lang: "en"
+    style: "emotion"
+    text_ext: ".txt"

@@ -21,6 +21,9 @@ dependencies = [
     "tqdm",
     "matplotlib",
     "qwen-asr",
+    "torchfcpe",
+    "pyyaml",
+    "pyloudnorm",
 ]
 
 [project.optional-dependencies]
