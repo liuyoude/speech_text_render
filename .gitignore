@@ -5,3 +5,6 @@
 examples/websrcs/
 examples/.ssl/
 .cursor/
+*.egg-info/
+docs/
+speech_text_render.egg-info/

@@ -62,6 +62,30 @@ python core/control_text_builder.py
 python examples/test_audio_aligner.py
 ```
 
+## 下载 LibriSpeech-100
+
+在 WSL2 下，大体积语料建议优先放在 Linux 文件系统，例如 `~/datasets`，而不是 `/mnt/c` 或 `/mnt/d`。原因是模型推理和大量小文件遍历在 Linux 文件系统下通常更快，也能避免跨文件系统访问带来的额外开销；同时又不会把数 GB 的原始语料直接塞进 Git 仓库。
+
+项目内已提供支持多线程分片、断点续传、MD5 校验与自动解压的下载脚本：
+
+```bash
+# 默认下载到 ~/datasets
+bash scripts/download_librispeech_100.sh
+
+# 指定目录与线程数
+bash scripts/download_librispeech_100.sh --root ~/datasets --threads 8
+```
+
+默认目录结构如下：
+
+```text
+~/datasets/
+├── _archives/librispeech/train-clean-100.tar.gz
+└── LibriSpeech/train-clean-100/
+```
+
+注意：当前项目里的示例脚本主要按 `.wav + 同名 .txt` 配对来读取数据；而 LibriSpeech 原始格式是 `.flac + *.trans.txt`。因此，这个下载脚本解决的是“原始语料获取”，如果后续要直接接入当前 `examples/` 或 `dataset_config.yaml` 这套流程，通常还需要再做一次格式整理。
+
 ### Python API
 
 ```python
