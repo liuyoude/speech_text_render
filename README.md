@@ -73,7 +73,7 @@ python examples/test_audio_aligner.py
 bash scripts/download_librispeech_100.sh
 
 # 指定目录与线程数
-bash scripts/download_librispeech_100.sh --root ~/datasets --threads 8
+bash scripts/download_librispeech_100.sh --root ~/datasets --threads 4
 ```
 
 默认目录结构如下：

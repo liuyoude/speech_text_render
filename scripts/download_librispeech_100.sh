@@ -10,7 +10,7 @@
 set -euo pipefail
 
 DATA_ROOT="${LIBRISPEECH_ROOT:-$HOME/datasets}"
-THREADS="${LIBRISPEECH_THREADS:-8}"
+THREADS="${LIBRISPEECH_THREADS:-4}"
 DOWNLOAD_ONLY=false
 KEEP_PARTS=false
 INTERRUPT_HANDLED=0
@@ -27,7 +27,7 @@ usage() {
 
 选项:
   --root PATH        数据根目录，默认: $HOME/datasets
-  --threads N        下载线程数，默认: 8
+  --threads N        下载线程数，默认: 4
   --download-only    只下载压缩包，不解压
   --keep-parts       下载成功后保留分片文件
   --help, -h         显示帮助
